@@ -140,10 +140,10 @@ Target Company: {req.company}"""
             notion_url = await log_application(
                 position=req.position,
                 company=req.company,
+                folder_name=folder_name,
                 location=req.location,
                 salary_annual=req.salary_annual,
                 salary_hourly=req.salary_hourly,
-                date_job_posted=req.date_job_posted,
                 ai_used=req.ai_provider,
                 contact_email=req.contact_email,
             )

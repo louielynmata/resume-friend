@@ -161,10 +161,13 @@ npm install
 Open two terminals from the project root:
 
 **Terminal 1 — Backend:**
+From the project folder:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
 ```
+
+Reload only for development.
 
 **Terminal 2 — Frontend:**
 
