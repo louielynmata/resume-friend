@@ -1,19 +1,16 @@
-interface Meta {
-  position: string;
-  company: string;
-  location: string;
-  salary_annual: string;
-  salary_hourly: string;
-  date_job_posted: string;
-  contact_email: string;
-}
+import type { GenerationFeedItem, JobMeta } from "../types";
 
 interface Props {
-  meta: Meta;
-  onChange: (meta: Meta) => void;
+  meta: JobMeta;
+  onChange: (meta: JobMeta) => void;
   onBack: () => void;
   onGenerate: () => void;
   generating: boolean;
+  extracting: boolean;
+  generationFeed: GenerationFeedItem[];
+  generationErrorCode?: string;
+  generationErrorStatus?: number;
+  generationErrorHint?: string;
 }
 
 function Field({
@@ -39,8 +36,26 @@ function Field({
 const inputClass =
   "w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400";
 
-export function StepJobMeta({ meta, onChange, onBack, onGenerate, generating }: Props) {
-  const set = (key: keyof Meta) => (e: React.ChangeEvent<HTMLInputElement>) =>
+function statusClass(status: GenerationFeedItem["status"]) {
+  if (status === "done") return "bg-green-100 text-green-700 border-green-200";
+  if (status === "active") return "bg-blue-100 text-blue-700 border-blue-200";
+  if (status === "failed") return "bg-red-100 text-red-700 border-red-200";
+  return "bg-slate-100 text-slate-500 border-slate-200";
+}
+
+export function StepJobMeta({
+  meta,
+  onChange,
+  onBack,
+  onGenerate,
+  generating,
+  extracting,
+  generationFeed,
+  generationErrorCode,
+  generationErrorStatus,
+  generationErrorHint,
+}: Props) {
+  const set = (key: keyof JobMeta) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...meta, [key]: e.target.value });
 
   const canGenerate = meta.position.trim() && meta.company.trim();
@@ -52,7 +67,42 @@ export function StepJobMeta({ meta, onChange, onBack, onGenerate, generating }: 
         <p className="text-sm text-slate-500">
           Used for file naming and Notion tracking. Required fields are marked with *.
         </p>
+        {extracting && (
+          <p className="text-sm text-indigo-600 mt-2">Extracting job details from the description…</p>
+        )}
       </div>
+
+      {generationFeed.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">Generation Feed</h3>
+            <p className="text-xs text-slate-500">Tracks the current pipeline and where failures occur.</p>
+          </div>
+
+          <div className="space-y-2">
+            {generationFeed.map((item, index) => (
+              <div key={item.id} className="flex items-start gap-3">
+                <div className={`mt-0.5 w-7 h-7 rounded-full border text-xs flex items-center justify-center ${statusClass(item.status)}`}>
+                  {item.status === "done" ? "OK" : item.status === "failed" ? "!" : index + 1}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-800">{item.label}</p>
+                  <p className="text-xs text-slate-500">{item.description}</p>
+                  {item.detail && <p className="text-xs text-slate-700 mt-1 break-words">{item.detail}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {(generationErrorCode || generationErrorStatus || generationErrorHint) && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 space-y-1">
+              {generationErrorStatus && <p>HTTP Status: {generationErrorStatus}</p>}
+              {generationErrorCode && <p>Error Code: {generationErrorCode}</p>}
+              {generationErrorHint && <p>Hint: {generationErrorHint}</p>}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Position" required>

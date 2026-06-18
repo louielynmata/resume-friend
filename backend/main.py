@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import generate, scrape, model_files, notion
+from .routers import extract_job_meta, generate, scrape, model_files, notion
 
 app = FastAPI(
     title="Resume Friend API",
@@ -25,6 +25,7 @@ app.add_middleware(
 
 app.include_router(generate.router)
 app.include_router(scrape.router)
+app.include_router(extract_job_meta.router)
 app.include_router(model_files.router)
 app.include_router(notion.router)
 

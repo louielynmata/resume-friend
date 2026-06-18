@@ -12,6 +12,20 @@ class ScrapeResponse(BaseModel):
     source_url: str
 
 
+class ExtractJobMetaRequest(BaseModel):
+    text: str
+
+
+class ExtractJobMetaResponse(BaseModel):
+    position: Optional[str] = None
+    company: Optional[str] = None
+    location: Optional[str] = None
+    salary_annual: Optional[float] = None
+    salary_hourly: Optional[float] = None
+    date_job_posted: Optional[str] = None
+    contact_email: Optional[str] = None
+
+
 class GenerateRequest(BaseModel):
     job_description: str
     ai_provider: str        # "claude" | "openai" | "ollama"

@@ -1,5 +1,13 @@
 export type AIProvider = "claude" | "openai" | "ollama";
 export type JobType = "design" | "development";
+export type GenerationStageId =
+  | "validate_request"
+  | "load_model_files"
+  | "call_ai_provider"
+  | "build_documents"
+  | "log_notion"
+  | "complete";
+export type GenerationStageStatus = "pending" | "active" | "done" | "failed";
 
 export interface GeneratePayload {
   job_description: string;
@@ -12,6 +20,44 @@ export interface GeneratePayload {
   salary_hourly?: number;
   date_job_posted?: string;
   contact_email?: string;
+}
+
+export interface JobMeta {
+  position: string;
+  company: string;
+  location: string;
+  salary_annual: string;
+  salary_hourly: string;
+  date_job_posted: string;
+  contact_email: string;
+}
+
+export interface ExtractJobMetaResult {
+  position?: string | null;
+  company?: string | null;
+  location?: string | null;
+  salary_annual?: number | null;
+  salary_hourly?: number | null;
+  date_job_posted?: string | null;
+  contact_email?: string | null;
+}
+
+export interface ApiErrorPayload {
+  status_code?: number;
+  stage?: GenerationStageId;
+  code?: string;
+  message?: string;
+  detail?: string | null;
+  hint?: string | null;
+  retryable?: boolean;
+}
+
+export interface GenerationFeedItem {
+  id: GenerationStageId;
+  label: string;
+  status: GenerationStageStatus;
+  description: string;
+  detail?: string;
 }
 
 export interface GenerateResult {
