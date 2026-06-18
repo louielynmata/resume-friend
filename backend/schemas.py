@@ -49,6 +49,14 @@ class GenerateResponse(BaseModel):
     message: str
 
 
+class OpenFolderRequest(BaseModel):
+    folder_path: str
+
+
+class OpenFolderResponse(BaseModel):
+    opened: bool
+
+
 class ModelFilesResponse(BaseModel):
     design_resume: bool
     dev_resume: bool

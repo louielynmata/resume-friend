@@ -1,3 +1,6 @@
+import { useState } from "react";
+
+import { api } from "../api/client";
 import type { GenerateResult } from "../types";
 
 interface Props {
@@ -30,6 +33,21 @@ function FileRow({ label, docx, pdf }: { label: string; docx?: string; pdf?: str
 }
 
 export function StepResult({ result, onReset }: Props) {
+  const [isOpeningFolder, setIsOpeningFolder] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
+
+  async function handleOpenFolder() {
+    setIsOpeningFolder(true);
+    setFolderError(null);
+    try {
+      await api.openFolder(result.output_folder);
+    } catch (error) {
+      setFolderError(error instanceof Error ? error.message : "Could not open folder.");
+    } finally {
+      setIsOpeningFolder(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -46,6 +64,17 @@ export function StepResult({ result, onReset }: Props) {
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
         <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Saved to</p>
         <p className="text-sm font-mono text-slate-700 break-all">{result.output_folder}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleOpenFolder}
+            disabled={isOpeningFolder}
+            className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isOpeningFolder ? "Opening..." : "Open Folder"}
+          </button>
+          {folderError ? <p className="text-sm text-red-600">{folderError}</p> : null}
+        </div>
       </div>
 
       {/* Files */}

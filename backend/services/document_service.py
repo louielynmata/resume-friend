@@ -45,45 +45,120 @@ def _extract_tag(text: str, tag: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _normalize_document_text(content: str) -> list[str]:
+    normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", normalized)
+    normalized = re.sub(r"\s*```$", "", normalized)
+
+    lines: list[str] = []
+    for raw_line in normalized.split("\n"):
+        line = raw_line.strip()
+        line = re.sub(r"^\s{0,3}(?:[-*+]\s|\d+\.\s)", "- ", line)
+        line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", line)
+        line = re.sub(r"[*_`~]+", "", line)
+        line = re.sub(r"\s{2,}", " ", line).strip()
+        lines.append(line)
+
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+
+    return lines
+
+
+def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
+    if not line:
+        return "blank", ""
+
+    legacy_name = re.match(r"^#\s+(.+)$", line)
+    if legacy_name:
+        return "name", legacy_name.group(1).strip()
+
+    name_match = re.match(r"^\[?(?:NAME|FULL NAME)\s*:\s*(.+?)\]?$", line, re.IGNORECASE)
+    if name_match:
+        return "name", name_match.group(1).strip()
+
+    contact_match = re.match(r"^\[?(?:CONTACT|CONTACT INFO)\s*:\s*(.+?)\]?$", line, re.IGNORECASE)
+    if contact_match:
+        return "contact", contact_match.group(1).strip()
+
+    legacy_section = re.match(r"^##\s+(.+)$", line)
+    if legacy_section:
+        return "section", legacy_section.group(1).strip()
+
+    if re.fullmatch(r"[A-Z][A-Z /&-]{2,}", line):
+        return "section", line
+
+    legacy_entry = re.match(r"^###\s+(.+)$", line)
+    if legacy_entry:
+        return "entry", legacy_entry.group(1).strip()
+
+    if line.startswith("- "):
+        return "bullet", line[2:].strip()
+
+    if index <= 2 and "|" in line:
+        return "contact", line
+
+    if "|" in line and index > 2:
+        return "entry", line
+
+    return "body", line
+
+
+def _cover_letter_lines(content: str) -> list[str]:
+    lines = _normalize_document_text(content)
+    return [re.sub(r"^#{1,6}\s*", "", line).strip() if line else "" for line in lines]
+
+
 # ── Resume .docx ───────────────────────────────────────────────────────────────
 
 def _build_resume_docx(content: str, path: Path) -> None:
     doc = Document()
     _set_margins(doc, top=0.75, bottom=0.75, left=0.9, right=0.9)
+    _set_default_font(doc)
 
-    lines = content.split("\n")
+    lines = _normalize_document_text(content)
     i = 0
     while i < len(lines):
         line = lines[i].strip()
+        kind, value = _resume_line_kind(line, i)
 
-        if not line:
+        if kind == "blank":
             i += 1
             continue
 
-        if line.startswith("# "):  # Name
+        if kind == "name":
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p.add_run(line[2:].strip())
+            run = p.add_run(value)
             run.bold = True
-            run.font.size = Pt(20)
+            _set_run_font(run, size=20)
             _set_para_spacing(p, before=0, after=2)
 
-        elif line.startswith("## "):  # Section header
-            _add_section_header(doc, line[3:].strip())
+        elif kind == "contact":
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run(value)
+            _set_run_font(run, size=10)
+            _set_para_spacing(p, before=0, after=2)
 
-        elif line.startswith("### "):  # Sub-entry (job title / degree)
-            _add_entry_header(doc, line[4:].strip())
+        elif kind == "section":
+            _add_section_header(doc, value)
 
-        elif line.startswith("- "):  # Bullet
+        elif kind == "entry":
+            _add_entry_header(doc, value)
+
+        elif kind == "bullet":
             p = doc.add_paragraph(style="List Bullet")
-            p.add_run(line[2:].strip()).font.size = Pt(10)
+            _set_run_font(p.add_run(value), size=10)
             _set_para_spacing(p, before=0, after=1)
 
-        else:  # Contact line or body text
+        else:
             p = doc.add_paragraph()
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER if i < 3 else WD_ALIGN_PARAGRAPH.LEFT
-            run = p.add_run(line)
-            run.font.size = Pt(10)
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            run = p.add_run(value)
+            _set_run_font(run, size=10)
             _set_para_spacing(p, before=0, after=2)
 
         i += 1
@@ -96,7 +171,7 @@ def _add_section_header(doc: Document, text: str) -> None:
     _set_para_spacing(p, before=6, after=2)
     run = p.add_run(text.upper())
     run.bold = True
-    run.font.size = Pt(11)
+    _set_run_font(run, size=11)
     run.font.color.rgb = RGBColor(0x1A, 0x1A, 0x1A)
     _add_bottom_border(p)
 
@@ -108,10 +183,10 @@ def _add_entry_header(doc: Document, text: str) -> None:
     if parts:
         run = p.add_run(parts[0])
         run.bold = True
-        run.font.size = Pt(11)
+        _set_run_font(run, size=11)
     if len(parts) > 1:
         run = p.add_run("  |  " + "  |  ".join(parts[1:]))
-        run.font.size = Pt(10)
+        _set_run_font(run, size=10)
         run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
 
 
@@ -120,14 +195,14 @@ def _add_entry_header(doc: Document, text: str) -> None:
 def _build_cover_letter_docx(content: str, path: Path) -> None:
     doc = Document()
     _set_margins(doc, top=1.0, bottom=1.0, left=1.1, right=1.1)
+    _set_default_font(doc)
 
-    for line in content.split("\n"):
-        line = line.strip()
+    for line in _cover_letter_lines(content):
         if not line:
             doc.add_paragraph()
             continue
         p = doc.add_paragraph()
-        p.add_run(line).font.size = Pt(11)
+        _set_run_font(p.add_run(line), size=11)
         _set_para_spacing(p, before=0, after=4)
 
     doc.save(str(path))
@@ -153,6 +228,25 @@ def _set_margins(doc: Document, top: float, bottom: float, left: float, right: f
         section.bottom_margin = Inches(bottom)
         section.left_margin = Inches(left)
         section.right_margin = Inches(right)
+
+
+def _set_default_font(doc: Document) -> None:
+    normal_style = doc.styles["Normal"]
+    _apply_font_family(normal_style.font)
+    normal_style.font.size = Pt(10)
+
+
+def _set_run_font(run, size: int) -> None:
+    _apply_font_family(run.font)
+    run.font.size = Pt(size)
+
+
+def _apply_font_family(font) -> None:
+    font.name = "Poppins"
+    font._element.rPr.rFonts.set(qn("w:ascii"), "Poppins")
+    font._element.rPr.rFonts.set(qn("w:hAnsi"), "Poppins")
+    font._element.rPr.rFonts.set(qn("w:eastAsia"), "Poppins")
+    font._element.rPr.rFonts.set(qn("w:cs"), "Poppins")
 
 
 def _set_para_spacing(p, before: int = 0, after: int = 4) -> None:

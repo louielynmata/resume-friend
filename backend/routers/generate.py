@@ -131,21 +131,21 @@ RULES - follow strictly:
 OUTPUT FORMAT - use these exact XML tags. Output ONLY the two tagged sections, nothing else:
 
 <RESUME>
-# {settings.owner_name}
-[contact: email | phone | location | linkedin/github]
+NAME: {settings.owner_name}
+CONTACT: email | phone | location | linkedin/github
 
-## PROFESSIONAL SUMMARY
+PROFESSIONAL SUMMARY
 [2-3 sentences tailored to the job]
 
-## WORK EXPERIENCE
-### [Job Title] | [Company] | [Start Date - End Date]
+WORK EXPERIENCE
+[Job Title] | [Company] | [Start Date - End Date]
 - [Achievement bullet with metric where possible]
 - [Achievement bullet]
 
-## EDUCATION
-### [Degree/Diploma] | [Institution] | [Year]
+EDUCATION
+[Degree/Diploma] | [Institution] | [Year]
 
-## SKILLS
+SKILLS
 [Category]: skill1, skill2, skill3
 </RESUME>
 

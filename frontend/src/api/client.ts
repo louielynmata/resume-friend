@@ -49,6 +49,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  openFolder: (folderPath: string) =>
+    request<{ opened: boolean }>("/api/open-folder", {
+      method: "POST",
+      body: JSON.stringify({ folder_path: folderPath }),
+    }),
+
   modelFiles: () => request<ModelFilesStatus>("/api/model-files"),
 
   notionStatus: () => request<{ configured: boolean }>("/api/notion/status"),
