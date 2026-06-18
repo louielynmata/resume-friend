@@ -8,6 +8,70 @@ interface Props {
   onReset: () => void;
 }
 
+// ── Analysis parsing ──────────────────────────────────────────────────────────
+
+interface ParsedAnalysis {
+  ats_score: number | null;
+  score_rationale: string;
+  keywords_applied: Array<{ keyword: string; placement: string }>;
+  keywords_missing: Array<{ keyword: string; reason: string }>;
+  key_decisions: string[];
+  gaps: string[];
+}
+
+function parseAnalysis(raw: string): ParsedAnalysis {
+  const result: ParsedAnalysis = {
+    ats_score: null,
+    score_rationale: "",
+    keywords_applied: [],
+    keywords_missing: [],
+    key_decisions: [],
+    gaps: [],
+  };
+
+  const scoreMatch = raw.match(/ATS_SCORE:\s*(\d+)/i);
+  if (scoreMatch) result.ats_score = Math.min(100, Math.max(0, parseInt(scoreMatch[1], 10)));
+
+  const rationaleMatch = raw.match(/SCORE_RATIONALE:\s*(.+?)(?=\n[A-Z_]+:|$)/is);
+  if (rationaleMatch) result.score_rationale = rationaleMatch[1].trim();
+
+  const appliedBlock = raw.match(/KEYWORDS_APPLIED:\s*([\s\S]+?)(?=\nKEYWORDS_MISSING:|$)/i);
+  if (appliedBlock) {
+    for (const line of appliedBlock[1].split("\n")) {
+      const m = line.match(/^[-•]\s*(.+?)\s+[—–-]+\s+(.+)$/);
+      if (m) result.keywords_applied.push({ keyword: m[1].trim(), placement: m[2].trim() });
+    }
+  }
+
+  const missingBlock = raw.match(/KEYWORDS_MISSING:\s*([\s\S]+?)(?=\nKEY_DECISIONS:|$)/i);
+  if (missingBlock) {
+    for (const line of missingBlock[1].split("\n")) {
+      const m = line.match(/^[-•]\s*(.+?)\s+[—–-]+\s+(.+)$/);
+      if (m) result.keywords_missing.push({ keyword: m[1].trim(), reason: m[2].trim() });
+    }
+  }
+
+  const decisionsBlock = raw.match(/KEY_DECISIONS:\s*([\s\S]+?)(?=\nGAPS:|$)/i);
+  if (decisionsBlock) {
+    for (const line of decisionsBlock[1].split("\n")) {
+      const m = line.match(/^[-•]\s*(.+)$/);
+      if (m) result.key_decisions.push(m[1].trim());
+    }
+  }
+
+  const gapsBlock = raw.match(/GAPS:\s*([\s\S]+?)$/i);
+  if (gapsBlock) {
+    for (const line of gapsBlock[1].split("\n")) {
+      const m = line.match(/^[-•]\s*(.+)$/);
+      if (m) result.gaps.push(m[1].trim());
+    }
+  }
+
+  return result;
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
 function FileRow({ label, docx, pdf }: { label: string; docx?: string; pdf?: string | null }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-1 py-2 border-b border-slate-100 last:border-0">
@@ -31,6 +95,192 @@ function FileRow({ label, docx, pdf }: { label: string; docx?: string; pdf?: str
     </div>
   );
 }
+
+function AtsScoreRing({ score }: { score: number }) {
+  const radius = 36;
+  const circumference = 2 * Math.PI * radius;
+  const filled = (score / 100) * circumference;
+  const color = score >= 75 ? "#16a34a" : score >= 50 ? "#d97706" : "#dc2626";
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <svg width="96" height="96" viewBox="0 0 96 96">
+        <circle cx="48" cy="48" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="8" />
+        <circle
+          cx="48"
+          cy="48"
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth="8"
+          strokeDasharray={`${filled} ${circumference - filled}`}
+          strokeLinecap="round"
+          transform="rotate(-90 48 48)"
+        />
+        <text x="48" y="48" textAnchor="middle" dominantBaseline="middle" fontSize="20" fontWeight="700" fill={color}>
+          {score}
+        </text>
+        <text x="48" y="64" textAnchor="middle" dominantBaseline="middle" fontSize="9" fill="#64748b">
+          / 100
+        </text>
+      </svg>
+      <span className="text-xs font-semibold" style={{ color }}>
+        {score >= 75 ? "Strong Match" : score >= 50 ? "Moderate Match" : "Needs Tailoring"}
+      </span>
+    </div>
+  );
+}
+
+function KeywordPill({
+  text,
+  variant,
+}: {
+  text: string;
+  variant: "applied" | "missing";
+}) {
+  return (
+    <span
+      className={`inline-block text-xs px-2 py-0.5 rounded-full border font-medium ${
+        variant === "applied"
+          ? "bg-green-50 text-green-700 border-green-200"
+          : "bg-red-50 text-red-600 border-red-200"
+      }`}
+    >
+      {text}
+    </span>
+  );
+}
+
+function AnalysisPanel({ raw }: { raw: string }) {
+  const [tab, setTab] = useState<"overview" | "keywords" | "decisions">("overview");
+  const analysis = parseAnalysis(raw);
+
+  const tabs: Array<{ id: typeof tab; label: string }> = [
+    { id: "overview", label: "Overview" },
+    { id: "keywords", label: `Keywords (${analysis.keywords_applied.length + analysis.keywords_missing.length})` },
+    { id: "decisions", label: `Decisions (${analysis.key_decisions.length})` },
+  ];
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      <div className="px-4 pt-4 pb-0">
+        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">AI Analysis</p>
+
+        {/* ATS Score */}
+        {analysis.ats_score !== null && (
+          <div className="flex items-start gap-6 mb-4">
+            <AtsScoreRing score={analysis.ats_score} />
+            {analysis.score_rationale && (
+              <p className="text-sm text-slate-600 leading-relaxed pt-1">{analysis.score_rationale}</p>
+            )}
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div className="flex border-b border-slate-200 -mx-4 px-4 gap-0">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`text-xs font-medium px-3 py-2 border-b-2 transition-colors ${
+                tab === t.id
+                  ? "border-indigo-500 text-indigo-600"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="p-4">
+        {/* Overview tab */}
+        {tab === "overview" && (
+          <div className="space-y-4">
+            {analysis.gaps.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Gaps</p>
+                <ul className="space-y-1.5">
+                  {analysis.gaps.map((gap, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-slate-700">
+                      <span className="text-amber-500 shrink-0 mt-0.5">▲</span>
+                      {gap}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {analysis.keywords_missing.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Missing Keywords</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {analysis.keywords_missing.map((k, i) => (
+                    <KeywordPill key={i} text={k.keyword} variant="missing" />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Keywords tab */}
+        {tab === "keywords" && (
+          <div className="space-y-4">
+            {analysis.keywords_applied.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">
+                  Applied ({analysis.keywords_applied.length})
+                </p>
+                <div className="space-y-1.5">
+                  {analysis.keywords_applied.map((k, i) => (
+                    <div key={i} className="flex gap-2 items-baseline">
+                      <KeywordPill text={k.keyword} variant="applied" />
+                      <span className="text-xs text-slate-500">{k.placement}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {analysis.keywords_missing.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">
+                  Not Applied ({analysis.keywords_missing.length})
+                </p>
+                <div className="space-y-1.5">
+                  {analysis.keywords_missing.map((k, i) => (
+                    <div key={i} className="flex gap-2 items-baseline">
+                      <KeywordPill text={k.keyword} variant="missing" />
+                      <span className="text-xs text-slate-500">{k.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Decisions tab */}
+        {tab === "decisions" && (
+          <ul className="space-y-2">
+            {analysis.key_decisions.map((d, i) => (
+              <li key={i} className="flex gap-2 text-sm text-slate-700">
+                <span className="text-indigo-400 shrink-0 font-bold mt-0.5">{i + 1}.</span>
+                {d}
+              </li>
+            ))}
+            {analysis.key_decisions.length === 0 && (
+              <p className="text-sm text-slate-400">No decisions captured.</p>
+            )}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function StepResult({ result, onReset }: Props) {
   const [isOpeningFolder, setIsOpeningFolder] = useState(false);
@@ -83,6 +333,9 @@ export function StepResult({ result, onReset }: Props) {
         <FileRow label="Resume" docx={result.resume_docx} pdf={result.resume_pdf} />
         <FileRow label="Cover Letter" docx={result.cover_letter_docx} pdf={result.cover_letter_pdf} />
       </div>
+
+      {/* AI Analysis */}
+      {result.analysis && <AnalysisPanel raw={result.analysis} />}
 
       {/* Notion */}
       <div className="bg-white border border-slate-200 rounded-lg p-4">

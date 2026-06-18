@@ -36,6 +36,11 @@ def _http_error(
     )
 
 
+def _extract_analysis(text: str) -> str | None:
+    match = re.search(r"<ANALYSIS>(.*?)</ANALYSIS>", text, re.DOTALL)
+    return match.group(1).strip() if match else None
+
+
 def _slugify(text: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "", text.title().replace(" ", ""))
 
@@ -111,10 +116,11 @@ async def generate(req: GenerateRequest):
 
     system_prompt = f"""You are a professional resume and cover letter writer assisting {settings.owner_name}.
 
-RULES - follow strictly:
+CORE RULES — follow strictly:
 1. TRUTHFUL: Only use information present in the provided resume. Never invent skills, experiences, or qualifications.
-2. ATS-OPTIMIZED: Identify keywords and required skills from the job description. Naturally incorporate matching terms where they reflect actual experience.
-3. HUMANIZED: Match the writing style shown in the examples. Avoid generic AI phrases like "results-driven professional" or "dynamic team player."
+2. JD KEYWORD ANALYSIS: Before writing, extract must-have keywords, skills, tools, and phrases from the job description. Naturally incorporate every matching keyword where it genuinely reflects actual experience. Prioritize and reorder content so the most JD-relevant items appear first.
+3. HUMANIZED: Match the writing style shown in the examples. Avoid generic AI phrases like "results-driven professional" or "dynamic team player." No em dashes.
+4. FORMATTING: Follow the INSTRUCTIONS section exactly — section names, header structure, bullet style, entry format, and horizontal rule placement. Do not invent your own structure.
 
 --- {req.job_type.upper()} RESUME ---
 {resume_content}
@@ -128,44 +134,51 @@ RULES - follow strictly:
 --- EDUCATION / TRANSCRIPT ---
 {transcript}
 
-OUTPUT FORMAT - use these exact XML tags. Output ONLY the two tagged sections, nothing else:
+OUTPUT FORMAT — output exactly three XML-tagged sections, nothing else outside the tags:
 
 <RESUME>
-NAME: {settings.owner_name}
-CONTACT: email | phone | location | linkedin/github
-
-PROFESSIONAL SUMMARY
-[2-3 sentences tailored to the job]
-
-WORK EXPERIENCE
-[Job Title] | [Company] | [Start Date - End Date]
-- [Achievement bullet with metric where possible]
-- [Achievement bullet]
-
-EDUCATION
-[Degree/Diploma] | [Institution] | [Year]
-
-SKILLS
-[Category]: skill1, skill2, skill3
+[Full resume following the INSTRUCTIONS formatting rules exactly — section headers in ALL CAPS, name in ALL CAPS centered, horizontal rule directly under name, bullets using ●, bold key phrases inline, work entries using the two-pattern system from the instructions, skills categories inline on same line as bold label]
 </RESUME>
 
 <COVER_LETTER>
-{date.today().strftime("%B %d, %Y")}
+Cover Letter
 
-Hiring Manager
-[Company Name]
+To the [Hiring Team / specific team name if known],
 
-Dear Hiring Manager,
+[Opening paragraph — specific, tailored to this company and role, do NOT open with "I am excited to apply" or generic lines]
 
-[Paragraph 1: Why this specific role and company - be concrete]
+[Body paragraph — 2-3 concrete examples from the resume that match this specific role]
 
-[Paragraph 2: 2-3 specific examples of relevant experience from resume]
+[Closing paragraph — why this company or team, forward-looking]
 
-[Paragraph 3: Enthusiastic close + call to action]
+Cheers and all the best!
 
-Sincerely,
+
+Sincerely and thankfully,
 {settings.owner_name}
-</COVER_LETTER>"""
+louielynmata@gmail.com
+http://www.linkedin.com/in/louielynmata
+</COVER_LETTER>
+
+<ANALYSIS>
+ATS_SCORE: [0-100 integer]
+
+SCORE_RATIONALE: [2-3 sentences explaining the score — what drove it up, what held it back]
+
+KEYWORDS_APPLIED:
+- [keyword or phrase from JD] — [where it was placed in the resume]
+- [repeat for each applied keyword]
+
+KEYWORDS_MISSING:
+- [keyword or phrase from JD not yet in the resume] — [reason: not in source resume / could not be placed truthfully]
+
+KEY_DECISIONS:
+- [A specific tailoring decision made — what was changed from the base resume and why]
+- [repeat for each major decision — reordered bullets, swapped section, emphasized specific experience, etc.]
+
+GAPS:
+- [A genuine gap between the JD requirements and the resume — be specific]
+</ANALYSIS>"""
 
     user_prompt = f"""Job Description:
 {req.job_description}
@@ -200,6 +213,8 @@ Target Company: {req.company}"""
             retryable=retryable,
         )
 
+    analysis_text = _extract_analysis(ai_response)
+
     position_slug = _slugify(req.position)
     company_slug = _slugify(req.company)
     today_str = date.today().strftime("%Y-%m-%d")
@@ -207,6 +222,10 @@ Target Company: {req.company}"""
 
     output_dir = settings.output_path / folder_name
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if analysis_text:
+        analysis_path = output_dir / "analysis.md"
+        analysis_path.write_text(analysis_text, encoding="utf-8")
 
     try:
         docs = await build_documents(
@@ -257,5 +276,6 @@ Target Company: {req.company}"""
         cover_letter_docx=docs.get("cover_letter_docx", ""),
         cover_letter_pdf=docs.get("cover_letter_pdf"),
         notion_page_url=notion_url,
+        analysis=analysis_text,
         message="Generated successfully",
     )

@@ -46,6 +46,7 @@ class GenerateResponse(BaseModel):
     cover_letter_docx: str
     cover_letter_pdf: Optional[str] = None
     notion_page_url: Optional[str] = None
+    analysis: Optional[str] = None
     message: str
 
 

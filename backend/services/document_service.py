@@ -131,9 +131,31 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
     return "body", line
 
 
+def _cover_letter_line_kind(line: str) -> str:
+    """Classify a cover letter line for targeted formatting."""
+    if re.match(r"^cover letter$", line, re.IGNORECASE):
+        return "heading"
+    if re.match(r"^to (the |hiring |dear )", line, re.IGNORECASE):
+        return "greeting"
+    if re.match(r"^cheers", line, re.IGNORECASE):
+        return "signoff"
+    if re.match(r"^sincerely", line, re.IGNORECASE):
+        return "closing"
+    return "body"
+
+
 def _cover_letter_lines(content: str) -> list[str]:
-    lines = _normalize_document_text(content)
-    return [re.sub(r"^#{1,6}\s*", "", line).strip() if line else "" for line in lines]
+    raw = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+    raw = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    lines = raw.split("\n")
+    cleaned = []
+    for raw_line in lines:
+        line = re.sub(r"^#{1,6}\s*", "", raw_line).strip()
+        line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", line)
+        line = re.sub(r"\s{2,}", " ", line)
+        cleaned.append(line)
+    return cleaned
 
 
 # ── Resume .docx ───────────────────────────────────────────────────────────────
@@ -222,13 +244,54 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
     _set_margins(doc, top=1.0, bottom=1.0, left=1.1, right=1.1)
     _set_default_font(doc)
 
-    for line in _cover_letter_lines(content):
+    lines = _cover_letter_lines(content)
+    in_closing = False
+
+    for line in lines:
         if not line:
-            doc.add_paragraph()
+            if not in_closing:
+                doc.add_paragraph()
             continue
-        p = doc.add_paragraph()
-        _set_run_font(p.add_run(line), size=11)
-        _set_para_spacing(p, before=0, after=4)
+
+        kind = _cover_letter_line_kind(line)
+
+        if kind == "heading":
+            p = doc.add_paragraph()
+            run = p.add_run(line)
+            run.bold = True
+            _set_run_font(run, size=14)
+            _set_para_spacing(p, before=0, after=10)
+
+        elif kind == "greeting":
+            p = doc.add_paragraph()
+            run = p.add_run(line)
+            run.bold = True
+            _set_run_font(run, size=11)
+            _set_para_spacing(p, before=6, after=4)
+
+        elif kind == "signoff":
+            p = doc.add_paragraph()
+            _set_run_font(p.add_run(line), size=11)
+            _set_para_spacing(p, before=8, after=16)
+            in_closing = True
+
+        elif kind == "closing":
+            p = doc.add_paragraph()
+            _set_run_font(p.add_run(line), size=11)
+            _set_para_spacing(p, before=0, after=2)
+
+        else:
+            # In closing block: bold the owner name line
+            if in_closing and not line.startswith("http") and not re.match(r".+@.+\..+", line):
+                p = doc.add_paragraph()
+                run = p.add_run(line)
+                run.bold = True
+                _set_run_font(run, size=11)
+                _set_para_spacing(p, before=0, after=2)
+            else:
+                p = doc.add_paragraph()
+                _set_run_font(p.add_run(line), size=11)
+                _set_para_spacing(p, before=0, after=4)
 
     return _save_document(doc, path)
 
