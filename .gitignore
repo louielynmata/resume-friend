@@ -33,3 +33,6 @@ model_files/
 *.xlsx
 *.xml
 *.log
+
+# Claude
+claude/*

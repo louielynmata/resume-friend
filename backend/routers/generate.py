@@ -35,11 +35,11 @@ async def generate(req: GenerateRequest):
         raise HTTPException(400, "job_type must be design or development")
 
     # Load model files
-    resume_file = "design_resume.txt" if req.job_type == "design" else "dev_resume.txt"
+    resume_file = "design_resume.md" if req.job_type == "design" else "dev_resume.md"
     resume_content = _read_model(resume_file)
-    instructions = _read_model("instructions_prompt.txt")
-    writing_examples = _read_model("writing_examples.txt")
-    transcript = _read_model("sait_transcript.txt")
+    instructions = _read_model("instructions_prompt.md")
+    writing_examples = _read_model("writing_examples.md")
+    transcript = _read_model("school_transcript.md")
 
     system_prompt = f"""You are a professional resume and cover letter writer assisting {settings.owner_name}.
 
