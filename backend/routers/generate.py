@@ -254,6 +254,7 @@ Target Company: {req.company}"""
         )
 
     notion_url = None
+    notion_error = None
     if settings.notion_token and settings.notion_database_id:
         try:
             notion_url = await log_application(
@@ -265,9 +266,10 @@ Target Company: {req.company}"""
                 salary_hourly=req.salary_hourly,
                 ai_used=req.ai_provider,
                 contact_email=req.contact_email,
+                date_job_posted=req.date_job_posted.isoformat() if req.date_job_posted else None,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            notion_error = str(exc)
 
     return GenerateResponse(
         output_folder=str(output_dir.resolve()),
@@ -276,6 +278,7 @@ Target Company: {req.company}"""
         cover_letter_docx=docs.get("cover_letter_docx", ""),
         cover_letter_pdf=docs.get("cover_letter_pdf"),
         notion_page_url=notion_url,
+        notion_error=notion_error,
         analysis=analysis_text,
         message="Generated successfully",
     )

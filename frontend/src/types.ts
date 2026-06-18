@@ -67,6 +67,7 @@ export interface GenerateResult {
   cover_letter_docx: string;
   cover_letter_pdf?: string;
   notion_page_url?: string;
+  notion_error?: string;
   analysis?: string;
   message: string;
 }

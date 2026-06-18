@@ -4,7 +4,14 @@ import { StepJobInput } from "./components/StepJobInput";
 import { StepAIConfig } from "./components/StepAIConfig";
 import { StepJobMeta } from "./components/StepJobMeta";
 import { StepResult } from "./components/StepResult";
-import type { AIProvider, GenerateResult, GenerationFeedItem, GenerationStageId, JobMeta, JobType } from "./types";
+import type {
+  AIProvider,
+  GenerateResult,
+  GenerationFeedItem,
+  GenerationStageId,
+  JobMeta,
+  JobType,
+} from "./types";
 
 const STEPS = ["Job Description", "AI & Job Type", "Details", "Result"];
 
@@ -28,16 +35,45 @@ const DEFAULT_META_TOUCHED: Record<keyof JobMeta, boolean> = {
   contact_email: false,
 };
 
-const GENERATION_STAGES: Array<Pick<GenerationFeedItem, "id" | "label" | "description">> = [
-  { id: "validate_request", label: "Validate Request", description: "Check required fields and generation settings." },
-  { id: "load_model_files", label: "Load Model Files", description: "Load your resume, prompt instructions, and writing samples." },
-  { id: "call_ai_provider", label: "Call AI Provider", description: "Send the prompt to Claude, OpenAI, or Ollama." },
-  { id: "build_documents", label: "Build Documents", description: "Parse the AI output and create the resume and cover letter files." },
-  { id: "log_notion", label: "Log to Notion", description: "Attempt tracking in Notion if it is configured." },
-  { id: "complete", label: "Complete", description: "Finalize output paths and return the result." },
+const GENERATION_STAGES: Array<
+  Pick<GenerationFeedItem, "id" | "label" | "description">
+> = [
+  {
+    id: "validate_request",
+    label: "Validate Request",
+    description: "Check required fields and generation settings.",
+  },
+  {
+    id: "load_model_files",
+    label: "Load Model Files",
+    description: "Load your resume, prompt instructions, and writing samples.",
+  },
+  {
+    id: "call_ai_provider",
+    label: "Call AI Provider",
+    description: "Send the prompt to Claude, OpenAI, or Ollama.",
+  },
+  {
+    id: "build_documents",
+    label: "Build Documents",
+    description:
+      "Parse the AI output and create the resume and cover letter files.",
+  },
+  {
+    id: "log_notion",
+    label: "Log to Notion",
+    description: "Attempt tracking in Notion if it is configured.",
+  },
+  {
+    id: "complete",
+    label: "Complete",
+    description: "Finalize output paths and return the result.",
+  },
 ];
 
-function buildGenerationFeed(activeStage?: GenerationStageId): GenerationFeedItem[] {
+function buildGenerationFeed(
+  activeStage?: GenerationStageId,
+): GenerationFeedItem[] {
   return GENERATION_STAGES.map((stage) => ({
     ...stage,
     status: stage.id === activeStage ? "active" : "pending",
@@ -50,14 +86,17 @@ export default function App() {
   const [aiProvider, setAiProvider] = useState<AIProvider>("claude");
   const [jobType, setJobType] = useState<JobType>("development");
   const [meta, setMeta] = useState<JobMeta>(DEFAULT_META);
-  const [metaTouched, setMetaTouched] = useState<Record<keyof JobMeta, boolean>>(DEFAULT_META_TOUCHED);
+  const [metaTouched, setMetaTouched] =
+    useState<Record<keyof JobMeta, boolean>>(DEFAULT_META_TOUCHED);
   const [generating, setGenerating] = useState(false);
   const [extractingMeta, setExtractingMeta] = useState(false);
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [errorStatus, setErrorStatus] = useState<number | undefined>(undefined);
   const [errorHint, setErrorHint] = useState("");
-  const [generationFeed, setGenerationFeed] = useState<GenerationFeedItem[]>([]);
+  const [generationFeed, setGenerationFeed] = useState<GenerationFeedItem[]>(
+    [],
+  );
   const [result, setResult] = useState<GenerateResult | null>(null);
   const generationIntervalRef = useRef<number | null>(null);
 
@@ -78,13 +117,20 @@ export default function App() {
     generationIntervalRef.current = window.setInterval(() => {
       index = Math.min(index + 1, stageIds.length - 2);
       setGenerationFeed((current) => {
-        const hasTerminalState = current.some((item) => item.status === "failed" || item.status === "done");
-        return hasTerminalState ? current : buildGenerationFeed(stageIds[index]);
+        const hasTerminalState = current.some(
+          (item) => item.status === "failed" || item.status === "done",
+        );
+        return hasTerminalState
+          ? current
+          : buildGenerationFeed(stageIds[index]);
       });
     }, 1400);
   }
 
-  function markGenerationFailed(stage: GenerationStageId | undefined, detail: string) {
+  function markGenerationFailed(
+    stage: GenerationStageId | undefined,
+    detail: string,
+  ) {
     setGenerationFeed((current) => {
       const fallback = current.length > 0 ? current : buildGenerationFeed();
       return fallback.map((item) => {
@@ -95,10 +141,15 @@ export default function App() {
           return { ...item, status: "failed", detail };
         }
         if (stage) {
-          const stageIndex = GENERATION_STAGES.findIndex((entry) => entry.id === stage);
-          const itemIndex = GENERATION_STAGES.findIndex((entry) => entry.id === item.id);
+          const stageIndex = GENERATION_STAGES.findIndex(
+            (entry) => entry.id === stage,
+          );
+          const itemIndex = GENERATION_STAGES.findIndex(
+            (entry) => entry.id === item.id,
+          );
           if (itemIndex < stageIndex) return { ...item, status: "done" };
-          if (itemIndex > stageIndex && item.status !== "failed") return { ...item, status: "pending" };
+          if (itemIndex > stageIndex && item.status !== "failed")
+            return { ...item, status: "pending" };
         }
         return item;
       });
@@ -137,19 +188,35 @@ export default function App() {
           metaTouched[key] ? current[key] : incoming;
 
         return {
-          position: pick("position", extracted.position || current.position || ""),
+          position: pick(
+            "position",
+            extracted.position || current.position || "",
+          ),
           company: pick("company", extracted.company || current.company || ""),
-          location: pick("location", extracted.location || current.location || ""),
+          location: pick(
+            "location",
+            extracted.location || current.location || "",
+          ),
           salary_annual: pick(
             "salary_annual",
-            extracted.salary_annual != null ? String(extracted.salary_annual) : current.salary_annual || "",
+            extracted.salary_annual != null
+              ? String(extracted.salary_annual)
+              : current.salary_annual || "",
           ),
           salary_hourly: pick(
             "salary_hourly",
-            extracted.salary_hourly != null ? String(extracted.salary_hourly) : current.salary_hourly || "",
+            extracted.salary_hourly != null
+              ? String(extracted.salary_hourly)
+              : current.salary_hourly || "",
           ),
-          date_job_posted: pick("date_job_posted", extracted.date_job_posted || current.date_job_posted || ""),
-          contact_email: pick("contact_email", extracted.contact_email || current.contact_email || ""),
+          date_job_posted: pick(
+            "date_job_posted",
+            extracted.date_job_posted || current.date_job_posted || "",
+          ),
+          contact_email: pick(
+            "contact_email",
+            extracted.contact_email || current.contact_email || "",
+          ),
         };
       });
     } catch {
@@ -179,8 +246,12 @@ export default function App() {
         position: meta.position,
         company: meta.company,
         location: meta.location || undefined,
-        salary_annual: meta.salary_annual ? Number.parseFloat(meta.salary_annual) : undefined,
-        salary_hourly: meta.salary_hourly ? Number.parseFloat(meta.salary_hourly) : undefined,
+        salary_annual: meta.salary_annual
+          ? Number.parseFloat(meta.salary_annual)
+          : undefined,
+        salary_hourly: meta.salary_hourly
+          ? Number.parseFloat(meta.salary_hourly)
+          : undefined,
         date_job_posted: meta.date_job_posted || undefined,
         contact_email: meta.contact_email || undefined,
       });
@@ -192,14 +263,19 @@ export default function App() {
       stopGenerationTicker();
       if (e instanceof ApiError) {
         const message = e.payload.message || e.payload.detail || e.message;
-        const detail = e.payload.detail ? `${message} ${e.payload.detail}` : message;
+        const detail = e.payload.detail
+          ? `${message} ${e.payload.detail}`
+          : message;
         setError(message);
         setErrorCode(e.payload.code || "");
         setErrorStatus(e.status);
         setErrorHint(e.payload.hint || "");
         markGenerationFailed(e.payload.stage, detail);
       } else {
-        const message = e instanceof Error ? e.message : "Generation failed. Check backend logs.";
+        const message =
+          e instanceof Error
+            ? e.message
+            : "Generation failed. Check backend logs.";
         setError(message);
         setErrorStatus(undefined);
         setErrorCode("");
@@ -232,9 +308,13 @@ export default function App() {
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-slate-900">Resume Friend</h1>
-            <p className="text-xs text-slate-400">AI-powered resume & cover letter generator</p>
+            <p className="text-xs text-slate-400">
+              AI-powered resume & cover letter generator
+            </p>
           </div>
-          <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">Local</span>
+          <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">
+            Local
+          </span>
         </div>
       </header>
 
@@ -252,14 +332,20 @@ export default function App() {
             else if (isDone) circleColor = "bg-green-500 text-white";
             return (
               <div key={label} className="flex items-center gap-1 flex-1">
-                <div className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${textColor}`}>
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0 ${circleColor}`}>
+                <div
+                  className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${textColor}`}
+                >
+                  <span
+                    className={`w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0 ${circleColor}`}
+                  >
                     {isDone ? "✓" : i + 1}
                   </span>
                   <span className="hidden sm:inline">{label}</span>
                 </div>
                 {i < STEPS.length - 1 && (
-                  <div className={`flex-1 h-px mx-1 ${isDone ? "bg-green-300" : "bg-slate-200"}`} />
+                  <div
+                    className={`flex-1 h-px mx-1 ${isDone ? "bg-green-300" : "bg-slate-200"}`}
+                  />
                 )}
               </div>
             );
@@ -277,7 +363,11 @@ export default function App() {
           )}
 
           {step === 0 && (
-            <StepJobInput value={jd} onChange={setJd} onNext={() => setStep(1)} />
+            <StepJobInput
+              value={jd}
+              onChange={setJd}
+              onNext={() => setStep(1)}
+            />
           )}
           {step === 1 && (
             <StepAIConfig
@@ -311,6 +401,8 @@ export default function App() {
 
       <footer className="text-center text-xs text-slate-400 py-4">
         Resume Friend — local only · no data leaves your machine
+        <br />
+        Louielyn Mata © Copyright {new Date().getFullYear()}
       </footer>
     </div>
   );

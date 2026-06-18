@@ -12,6 +12,7 @@ async def log_application(
     salary_hourly: Optional[float] = None,
     ai_used: str = "",
     contact_email: Optional[str] = None,
+    date_job_posted: Optional[str] = None,
 ) -> Optional[str]:
     from notion_client import AsyncClient
 
@@ -37,6 +38,8 @@ async def log_application(
         properties["Salary (By Hour)"] = {"number": salary_hourly}
     if contact_email:
         properties["Contact"] = {"email": contact_email}
+    if date_job_posted:
+        properties["Date of Job Posting"] = {"date": {"start": date_job_posted}}
 
     response = await client.pages.create(
         parent={"database_id": settings.notion_database_id},

@@ -187,22 +187,25 @@ The FastAPI interactive docs are also available at [http://localhost:8000/docs](
 To have job applications logged automatically:
 
 1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations) → **New Integration** → copy the token into `NOTION_TOKEN`
-2. Create a new full-page **Database** in Notion with these properties:
+2. Create a new full-page **Database** in Notion with these **exact** property names and types:
 
-| Property name       | Type                                            |
-| ------------------- | ----------------------------------------------- |
-| Name                | Title                                           |
-| Company             | Text                                            |
-| Position            | Text                                            |
-| Location            | Text                                            |
-| Salary Annual       | Number                                          |
-| Salary Hourly       | Number                                          |
-| Date of Job Posting | Date                                            |
-| Date Submitted      | Date                                            |
-| Status              | Select (Applied / Interview / Offer / Rejected) |
-| AI Used             | Select (Claude / OpenAI / Ollama)               |
-| ATS Use             | Checkbox                                        |
-| Contact Email       | Email                                           |
+| Property name      | Type                                            | Notes                              |
+| ------------------ | ----------------------------------------------- | ---------------------------------- |
+| ID                 | Title                                           | The default title column, renamed to `ID` |
+| Company            | Text                                            |                                    |
+| Position           | Text                                            |                                    |
+| Status             | Select                                          | Add option: `Applied`              |
+| Location           | Text                                            | Optional                           |
+| Sent Resume        | Checkbox                                        |                                    |
+| AI Resume          | Checkbox                                        |                                    |
+| ATS Use            | Checkbox                                        |                                    |
+| Folder Name        | Text                                            |                                    |
+| Salary (Annual)    | Number                                          | Optional                           |
+| Salary (By Hour)   | Number                                          | Optional                           |
+| Date of Submission | Date                                            |                                    |
+| Contact            | Email                                           | Optional                           |
+
+> **Property names are case-sensitive and must match exactly** — including spaces and parentheses. Run `GET /api/notion/test` (with the backend running) to check your database against these requirements and see any mismatches.
 
 3. Click **Share** on the database page → invite your integration
 4. Copy the database ID from the URL (`notion.so/.../{DATABASE_ID}?v=...`) → paste into `NOTION_DATABASE_ID`
