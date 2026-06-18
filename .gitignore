@@ -31,6 +31,5 @@ Thumbs.db
 model_files/
 *.csv
 *.xlsx
-*.json
 *.xml
 *.log
