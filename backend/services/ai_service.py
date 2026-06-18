@@ -54,6 +54,7 @@ async def _call_ollama(system_prompt: str, user_prompt: str) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 "stream": False,
+                "think": settings.ollama_think,
             },
         )
         response.raise_for_status()

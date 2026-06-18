@@ -36,3 +36,7 @@ model_files/
 
 # Claude
 claude/*
+
+# Sample Test files
+tmp_doc_lock_test/
+tmp_doc_test/

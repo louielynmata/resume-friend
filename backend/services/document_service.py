@@ -20,16 +20,16 @@ async def build_documents(
     result: dict = {}
 
     if resume_text:
-        docx_path = output_dir / f"{owner_name}_Resume_{position_slug}.docx"
-        _build_resume_docx(resume_text, docx_path)
+        docx_path = _resolve_output_path(output_dir / f"{owner_name}_Resume_{position_slug}.docx")
+        docx_path = _build_resume_docx(resume_text, docx_path)
         result["resume_docx"] = str(docx_path)
         result["resume_pdf"] = _to_pdf(docx_path)
     else:
         raise ValueError("AI response did not contain a <RESUME> section.")
 
     if cl_text:
-        cl_path = output_dir / f"{owner_name}_CoverLetter_{position_slug}.docx"
-        _build_cover_letter_docx(cl_text, cl_path)
+        cl_path = _resolve_output_path(output_dir / f"{owner_name}_CoverLetter_{position_slug}.docx")
+        cl_path = _build_cover_letter_docx(cl_text, cl_path)
         result["cover_letter_docx"] = str(cl_path)
         result["cover_letter_pdf"] = _to_pdf(cl_path)
     else:
@@ -43,6 +43,31 @@ async def build_documents(
 def _extract_tag(text: str, tag: str) -> str:
     match = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL)
     return match.group(1).strip() if match else ""
+
+
+def _resolve_output_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+
+    if _is_locked_word_document(path):
+        return _next_available_path(path)
+
+    return path
+
+
+def _next_available_path(path: Path) -> Path:
+    for index in range(2, 1000):
+        candidate = path.with_name(f"{path.stem}_{index}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+    raise OSError(f"Could not find an available output filename for {path.name}.")
+
+
+def _is_locked_word_document(path: Path) -> bool:
+    names = [f"~${path.name}"]
+    if len(path.name) >= 2:
+        names.append(f"~${path.name[2:]}")
+    return any(path.with_name(name).exists() for name in names)
 
 
 def _normalize_document_text(content: str) -> list[str]:
@@ -113,7 +138,7 @@ def _cover_letter_lines(content: str) -> list[str]:
 
 # ── Resume .docx ───────────────────────────────────────────────────────────────
 
-def _build_resume_docx(content: str, path: Path) -> None:
+def _build_resume_docx(content: str, path: Path) -> Path:
     doc = Document()
     _set_margins(doc, top=0.75, bottom=0.75, left=0.9, right=0.9)
     _set_default_font(doc)
@@ -163,7 +188,7 @@ def _build_resume_docx(content: str, path: Path) -> None:
 
         i += 1
 
-    doc.save(str(path))
+    return _save_document(doc, path)
 
 
 def _add_section_header(doc: Document, text: str) -> None:
@@ -192,7 +217,7 @@ def _add_entry_header(doc: Document, text: str) -> None:
 
 # ── Cover Letter .docx ─────────────────────────────────────────────────────────
 
-def _build_cover_letter_docx(content: str, path: Path) -> None:
+def _build_cover_letter_docx(content: str, path: Path) -> Path:
     doc = Document()
     _set_margins(doc, top=1.0, bottom=1.0, left=1.1, right=1.1)
     _set_default_font(doc)
@@ -205,7 +230,7 @@ def _build_cover_letter_docx(content: str, path: Path) -> None:
         _set_run_font(p.add_run(line), size=11)
         _set_para_spacing(p, before=0, after=4)
 
-    doc.save(str(path))
+    return _save_document(doc, path)
 
 
 # ── PDF conversion ─────────────────────────────────────────────────────────────
@@ -247,6 +272,16 @@ def _apply_font_family(font) -> None:
     font._element.rPr.rFonts.set(qn("w:hAnsi"), "Poppins")
     font._element.rPr.rFonts.set(qn("w:eastAsia"), "Poppins")
     font._element.rPr.rFonts.set(qn("w:cs"), "Poppins")
+
+
+def _save_document(doc: Document, path: Path) -> Path:
+    try:
+        doc.save(str(path))
+        return path
+    except PermissionError:
+        fallback_path = _next_available_path(path)
+        doc.save(str(fallback_path))
+        return fallback_path
 
 
 def _set_para_spacing(p, before: int = 0, after: int = 4) -> None:
