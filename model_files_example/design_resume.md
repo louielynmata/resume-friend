@@ -1,8 +1,11 @@
+(design_resume.md)
+
 [PLACEHOLDER — Replace this entire file with your Design resume]
 
 Paste your full Design/UX resume here as plain text.
 
 What to include:
+
 - Full name and contact details
 - Professional summary / objective
 - Work experience (company, title, dates, bullet achievements)
@@ -24,6 +27,7 @@ UX/UI Designer with X years of experience...
 
 WORK EXPERIENCE
 Senior UX Designer | Company Name | Jan 2022 – Present
+
 - Led redesign of X product, improving user retention by Y%
 - ...
 

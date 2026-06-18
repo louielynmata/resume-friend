@@ -1,3 +1,5 @@
+(school_transcript.md)
+
 [PLACEHOLDER — Replace this with your SAIT transcript / education details]
 
 Include your education history, relevant coursework, and academic achievements.
@@ -11,13 +13,16 @@ Graduation: [Month Year, e.g., "April 2022"]
 GPA: [Optional]
 
 RELEVANT COURSES:
+
 - [Course name] — [brief description or key skills]
 - [Course name] — [brief description]
 - [Add more as needed]
 
 ACHIEVEMENTS / AWARDS:
+
 - [Dean's List, scholarships, projects, competitions, etc.]
 
 NOTES:
+
 - [Any context the AI should know, e.g., "SAIT is a polytechnic institution in Calgary, AB, Canada"]
-──────────────────────────────
+  ──────────────────────────────
