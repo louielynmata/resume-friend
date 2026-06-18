@@ -1,0 +1,36 @@
+# Environment
+.env
+
+# Model files (personal — never commit)
+model_files/
+
+# Generated output documents
+outputs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Personal Identifiable Information (PII) and sensitive data files
+model_files/
+*.csv
+*.xlsx
+*.json
+*.xml
+*.log
