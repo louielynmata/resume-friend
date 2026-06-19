@@ -156,7 +156,8 @@ OUTPUT FORMAT — output exactly three XML-tagged sections. Nothing outside the 
 NAME: {settings.owner_name}
 ROLE: [Primary Role Title — {role_hint}]
 CONTACT: louielynmata@gmail.com | +1 825 558 0107  Calgary, AB
-LINKS: linkedin.com/in/louielynmata | github.com/louielynmata{portfolio_line}
+LINKS: linkedin.com/in/louielynmata | github.com/louielynmata
+PORTFOLIO: {portfolio_line}
 
 PROFESSIONAL SUMMARY
 [3–5 sentences. Use **bold** inline for key phrases. No em dashes.]
@@ -332,7 +333,7 @@ Target Company: {req.company}"""
     position_slug = _slugify(req.position)
     company_slug = _slugify(req.company)
     today_str = date.today().strftime("%Y-%m-%d")
-    folder_name = f"{name_slug}_{position_slug}_{today_str}"
+    folder_name = f"{company_slug}_{position_slug}_{today_str}"
 
     output_dir = settings.output_path / folder_name
     output_dir.mkdir(parents=True, exist_ok=True)
