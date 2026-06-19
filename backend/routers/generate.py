@@ -121,6 +121,15 @@ async def generate(req: GenerateRequest):
         trimmed = req.company_context[:4000]
         company_context_section = f"\n--- COMPANY CONTEXT (About Page) ---\n{trimmed}\n"
 
+    # Salary: auto-fill the missing field using 2080 hrs/year (40 hrs × 52 weeks)
+    _HOURS_PER_YEAR = 2080
+    salary_annual = req.salary_annual
+    salary_hourly = req.salary_hourly
+    if salary_annual and not salary_hourly:
+        salary_hourly = round(salary_annual / _HOURS_PER_YEAR, 2)
+    elif salary_hourly and not salary_annual:
+        salary_annual = round(salary_hourly * _HOURS_PER_YEAR, 2)
+
     if req.job_type == "design":
         role_hint = "for design roles always include BOTH creative direction AND multimedia/design, e.g. Creative Director and Multimedia Designer — Title Case, NOT all caps — adjust wording to match the JD but keep both aspects unless the JD is purely one or the other"
         portfolio_line = "\nPORTFOLIO: https://drive.google.com/drive/folders/1FKDM7u_vB0jY8S5zofdT4a4ziH7MD-g4?usp=sharing"
@@ -338,6 +347,12 @@ Target Company: {req.company}"""
     output_dir = settings.output_path / folder_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    jd_path = output_dir / "job_description.txt"
+    jd_path.write_text(
+        f"Position: {req.position}\nCompany:  {req.company}\n\n{req.job_description}",
+        encoding="utf-8",
+    )
+
     if analysis_text:
         analysis_path = output_dir / "analysis.md"
         analysis_path.write_text(analysis_text, encoding="utf-8")
@@ -377,8 +392,8 @@ Target Company: {req.company}"""
                 company=req.company,
                 folder_name=folder_name,
                 location=req.location,
-                salary_annual=req.salary_annual,
-                salary_hourly=req.salary_hourly,
+                salary_annual=salary_annual,
+                salary_hourly=salary_hourly,
                 ai_used=req.ai_provider,
                 contact_email=req.contact_email,
                 date_job_posted=req.date_job_posted.isoformat() if req.date_job_posted else None,
