@@ -42,7 +42,9 @@ def _extract_analysis(text: str) -> str | None:
 
 
 def _slugify(text: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9]", "", text.title().replace(" ", ""))
+    words = text.split()
+    cased = "".join(w[0].upper() + w[1:] if w else "" for w in words)
+    return re.sub(r"[^a-zA-Z0-9]", "", cased)
 
 
 def _read_model(filename: str) -> str:
@@ -119,6 +121,13 @@ async def generate(req: GenerateRequest):
         trimmed = req.company_context[:4000]
         company_context_section = f"\n--- COMPANY CONTEXT (About Page) ---\n{trimmed}\n"
 
+    if req.job_type == "design":
+        role_hint = "for design roles always include BOTH creative direction AND multimedia/design, e.g. CREATIVE DIRECTOR AND MULTIMEDIA DESIGNER — adjust wording to match the JD but keep both aspects unless the JD is purely one or the other"
+        portfolio_line = "\nPORTFOLIO: Portfolio: https://drive.google.com/file/d/1naAJJ5LJHuJAfyRS9B_teP5GBKYjbr-C/view | Demo Reel: https://drive.google.com/file/d/1gD4e_MPFIGgpIoKY5Ebz8_b-8acHKYV0/view?usp=drive_link"
+    else:
+        role_hint = "tailored to this specific job"
+        portfolio_line = ""
+
     system_prompt = f"""You are a professional resume and cover letter writer assisting {settings.owner_name}.
 
 CORE RULES — follow strictly:
@@ -144,9 +153,9 @@ OUTPUT FORMAT — output exactly three XML-tagged sections. Nothing outside the 
 
 <RESUME>
 NAME: {settings.owner_name}
-ROLE: [PRIMARY ROLE TITLE IN ALL CAPS — tailored to this specific job]
+ROLE: [PRIMARY ROLE TITLE IN ALL CAPS — {role_hint}]
 CONTACT: louielynmata@gmail.com | +1 825 558 0107  Calgary, AB
-LINKS: linkedin.com/in/louielynmata | github.com/louielynmata
+LINKS: linkedin.com/in/louielynmata | github.com/louielynmata{portfolio_line}
 
 PROFESSIONAL SUMMARY
 [3–5 sentences. Use **bold** inline for key phrases. No em dashes.]
@@ -168,6 +177,7 @@ RESUME FORMAT RULES — non-negotiable:
 - **bold** applies only inside bullet text and paragraph body — never on section headers or role/company names
 - --- goes on its own line ONLY between major section groups (e.g., after the skills section, before education). NEVER between individual job entries, NEVER between bullets.
 - Target 2 pages maximum. Include all relevant content — do not aggressively cut for 1 page.
+- There is ONE work experience section only. Do NOT create a separate "Other Experience", "Additional Experience", or any secondary experience section. Less relevant jobs go at the END of the main work experience section, ordered last — they do not get their own section.
 
 WORK ENTRY FORMAT — two patterns only, no other format allowed:
 
@@ -178,28 +188,37 @@ Company Name - context / Start Date - End Date
 ● Bullet with **bold key phrase**
 
 Pattern B (company is the headline — use when company is well-known or multiple roles):
-Company Name, (context in parentheses)
-ROLE TITLE ONE - Start Date – End Date (type)
-ROLE TITLE TWO - Start Date – End Date (type)
+Company Name | context
+ROLE TITLE ONE - Start Date - End Date (type)
+ROLE TITLE TWO - Start Date - End Date (type)
 
 ● Bullet with **bold key phrase**
+
+EDUCATION entry format — two lines per institution:
+Line 1: Institution Name | Start Year - End Year   ← pipe separates name from years
+Line 2: Degree (Achievement - GPA if relevant)     ← plain body line, no pipe
+
+Use this exact format for SAIT:
+SAIT - The Southern Alberta Institute of Technology | 2024-2026
+Software Development - Diploma (Graduated with Honors - 3.84/4.0)
 
 RULES FOR ENTRIES:
 - Each role title gets its OWN separate line — never cram multiple roles on one pipe-separated line
 - Role titles are ALWAYS in ALL CAPS followed by a dash and dates on the same line
 - Do NOT add a standalone descriptive subtitle line before the company or role
-- Do NOT use | pipe inside work entries (pipe is only for contact lines and company | context pairs)
+- Pipe | is used ONLY in: contact lines, company | context (Pattern B), and institution | degree (education entries)
+- Do NOT use | pipe inside bullet text
 
 <COVER_LETTER>
 Cover Letter
 
 To the [Hiring Team / specific team name if available],
 
-[Opening paragraph — specific to this company and role. Do NOT open with "I am excited to apply" or any generic line.]
+[Opening paragraph — specific to this company and role. Do NOT open with "I am excited to apply" or any generic line. No em dashes. Use the company context to find a unique angle about why this company or team matters and why you want to work there.]
 
-[Body paragraph — 2–3 concrete examples from the resume that match this specific role]
+[Body paragraph — 2–3 concrete examples from the resume that match this specific role. No em dashes. Use the job description to identify the most important skills and qualifications, then highlight the relevant experience from the resume that demonstrates those. Be specific about how your experience aligns with the job requirements and company values.]
 
-[Closing paragraph — why this company or team matters, forward-looking]
+[Closing paragraph — why this company or team matters, forward-looking. No em dashes. Reiterate enthusiasm for the role and how you see yourself contributing. Use WRITING SAMPLES PROVIDED. If the company has a strong mission or values, reference those and connect them to your own motivations. Avoid generic statements about "looking forward to contributing" — be specific about what excites you about the potential impact you could have at this company.]
 
 Cheers and all the best!
 

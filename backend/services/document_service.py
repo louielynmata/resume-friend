@@ -6,6 +6,7 @@ from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 
 async def build_documents(
@@ -72,11 +73,22 @@ def _is_locked_word_document(path: Path) -> bool:
 
 def _normalize_document_text(content: str) -> list[str]:
     normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized = re.sub(r"\s*—\s*", " - ", normalized)  # em dash → hyphen
     normalized = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", normalized)
     normalized = re.sub(r"\s*```$", "", normalized)
 
+    # Split "---SECTION" combined lines into separate divider + section lines
+    expanded: list[str] = []
+    for raw in normalized.split("\n"):
+        m = re.match(r"^(-{3,})\s*([^-\s].+)$", raw.strip())
+        if m:
+            expanded.append(m.group(1))
+            expanded.append(m.group(2).strip())
+        else:
+            expanded.append(raw)
+
     lines: list[str] = []
-    for raw_line in normalized.split("\n"):
+    for raw_line in expanded:
         line = raw_line.strip()
         # Convert other bullet styles → ● (only when followed by a space, so --- is safe)
         line = re.sub(r"^\s{0,3}[+]\s", "● ", line)
@@ -130,10 +142,14 @@ def _is_section_header(clean: str) -> bool:
     """ALL CAPS section header — allows lowercase connectors like 'and'."""
     if len(clean) < 3 or "|" in clean or clean.startswith("●"):
         return False
+    if "(" in clean:  # institution/company names have parentheses; section headers don't
+        return False
     letters = re.sub(r"[^A-Za-z\s]", "", clean).strip()
     if not letters:
         return False
     words = letters.split()
+    if len(words) > 5:  # section headers are short; long phrases are company/institution names
+        return False
     return (
         all(w.isupper() or w.lower() in _ALLOWED_LOWER for w in words)
         and any(w.isupper() for w in words)
@@ -236,6 +252,69 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
     return "body", line
 
 
+# ── Hyperlink helpers ──────────────────────────────────────────────────────────
+
+_URL_LINK_PAT = re.compile(
+    r"(https?://[^\s|]+|(?:linkedin|github|gitlab)\.com/[^\s|]+)",
+    re.IGNORECASE,
+)
+
+
+def _ensure_url(text: str) -> str:
+    return text if text.startswith("http") else f"https://{text}"
+
+
+def _add_hyperlink(paragraph, display: str, url: str, size: int) -> None:
+    """Insert a clickable hyperlink run into an existing paragraph."""
+    r_id = paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)
+
+    hl = OxmlElement("w:hyperlink")
+    hl.set(qn("r:id"), r_id)
+
+    r = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "0563C1")
+    rPr.append(color)
+
+    u = OxmlElement("w:u")
+    u.set(qn("w:val"), "single")
+    rPr.append(u)
+
+    rFonts = OxmlElement("w:rFonts")
+    rFonts.set(qn("w:ascii"), "Poppins")
+    rFonts.set(qn("w:hAnsi"), "Poppins")
+    rPr.append(rFonts)
+
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), str(size * 2))
+    rPr.append(sz)
+
+    r.append(rPr)
+
+    t = OxmlElement("w:t")
+    t.text = display
+    t.set(qn("xml:space"), "preserve")
+    r.append(t)
+
+    hl.append(r)
+    paragraph._p.append(hl)
+
+
+def _add_contact_line(paragraph, text: str, size: int) -> None:
+    """Render a contact/links line, converting URL-shaped tokens to hyperlinks."""
+    segments = _URL_LINK_PAT.split(text)
+    for seg in segments:
+        if not seg:
+            continue
+        if _URL_LINK_PAT.fullmatch(seg):
+            _add_hyperlink(paragraph, seg, _ensure_url(seg), size)
+        else:
+            run = paragraph.add_run(seg)
+            _set_run_font(run, size=size)
+
+
 # ── Inline bold renderer ───────────────────────────────────────────────────────
 
 def _add_inline_runs(paragraph, text: str, size: int, bold_base: bool = False,
@@ -299,8 +378,7 @@ def _build_resume_docx(content: str, path: Path) -> Path:
             display = _CONTACT_PREFIX.sub("", value).strip()
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p.add_run(display)
-            _set_run_font(run, size=10)
+            _add_contact_line(p, display, size=10)
             _set_para_spacing(p, before=0, after=2)
 
         elif kind == "divider":
@@ -339,13 +417,13 @@ def _build_resume_docx(content: str, path: Path) -> Path:
 
 
 def _add_section_header(doc: Document, text: str) -> None:
+    text = re.sub(r"^-+\s*", "", text)  # strip any leading dashes that slipped through
     p = doc.add_paragraph()
     _set_para_spacing(p, before=6, after=3)
     run = p.add_run(text.upper())
     run.bold = True
     _set_run_font(run, size=11)
     run.font.color.rgb = RGBColor(0x1A, 0x1A, 0x1A)
-    # No underline — the --- dividers between sections are the separators
 
 
 def _add_role_with_date(doc: Document, text: str) -> None:
@@ -414,6 +492,7 @@ def _cover_letter_line_kind(line: str) -> str:
 
 def _cover_letter_lines(content: str) -> list[str]:
     raw = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+    raw = re.sub(r"\s*—\s*", " - ", raw)  # em dash → hyphen
     raw = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     cleaned = []
@@ -473,7 +552,9 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
                 # Closing block: bold the name line, plain for email/url
                 is_url_or_email = line.startswith("http") or re.match(r".+@.+\..+", line)
                 p = doc.add_paragraph()
-                if is_url_or_email:
+                if is_url_or_email and line.startswith("http"):
+                    _add_hyperlink(p, clean, clean, size=11)
+                elif is_url_or_email:
                     _set_run_font(p.add_run(clean), size=11)
                 else:
                     run = p.add_run(clean)
