@@ -38,7 +38,7 @@ async def build_documents(
     return result
 
 
-# ── Parsing ────────────────────────────────────────────────────────────────────
+# ── Parsing helpers ────────────────────────────────────────────────────────────
 
 def _extract_tag(text: str, tag: str) -> str:
     match = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL)
@@ -48,10 +48,8 @@ def _extract_tag(text: str, tag: str) -> str:
 def _resolve_output_path(path: Path) -> Path:
     if not path.exists():
         return path
-
     if _is_locked_word_document(path):
         return _next_available_path(path)
-
     return path
 
 
@@ -70,6 +68,8 @@ def _is_locked_word_document(path: Path) -> bool:
     return any(path.with_name(name).exists() for name in names)
 
 
+# ── Text normalisation ─────────────────────────────────────────────────────────
+
 def _normalize_document_text(content: str) -> list[str]:
     normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
     normalized = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", normalized)
@@ -78,9 +78,15 @@ def _normalize_document_text(content: str) -> list[str]:
     lines: list[str] = []
     for raw_line in normalized.split("\n"):
         line = raw_line.strip()
-        line = re.sub(r"^\s{0,3}(?:[-*+]\s|\d+\.\s)", "- ", line)
-        line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", line)
-        line = re.sub(r"[*_`~]+", "", line)
+        # Convert other bullet styles → ● (only when followed by a space, so --- is safe)
+        line = re.sub(r"^\s{0,3}[+]\s", "● ", line)
+        line = re.sub(r"^\s{0,3}-\s(?!-)", "● ", line)   # - space, not --
+        line = re.sub(r"^\s{0,3}\*\s(?!\*)", "● ", line)  # * space, not **
+        line = re.sub(r"^\s{0,3}\d+\.\s", "● ", line)
+        # Unwrap markdown links
+        line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", line)
+        # Strip underscores, backticks, tildes — but KEEP asterisks for inline bold
+        line = re.sub(r"[_`~]+", "", line)
         line = re.sub(r"\s{2,}", " ", line).strip()
         lines.append(line)
 
@@ -92,70 +98,158 @@ def _normalize_document_text(content: str) -> list[str]:
     return lines
 
 
+def _strip_bold(text: str) -> str:
+    """Remove ** markers for classification purposes only."""
+    return re.sub(r"\*\*(.+?)\*\*", r"\1", text).replace("*", "").strip()
+
+
+# ── Resume line classifier ─────────────────────────────────────────────────────
+
+_DATE_PAT = re.compile(
+    r"^(Jan(uary)?|Feb(ruary)?|Mar(ch)?|Apr(il)?|May|Jun(e)?|Jul(y)?|"
+    r"Aug(ust)?|Sep(tember)?|Oct(ober)?|Nov(ember)?|Dec(ember)?|"
+    r"Summer|Fall|Winter|Spring|\d{4})",
+    re.IGNORECASE,
+)
+
+_CONTACT_PREFIX = re.compile(
+    r"^(email|phone|tel|mobile|location|city|address|"
+    r"linkedin|github|gitlab|portfolio|website|url|links?)\s*[:\-]\s*",
+    re.IGNORECASE,
+)
+
+_CONTACT_CONTENT = re.compile(
+    r"linkedin\.com|github\.com|gitlab\.com|@\S+\.\S+|\+\d[\d\s\-\.]{6,}",
+    re.IGNORECASE,
+)
+
+_ALLOWED_LOWER = {"and", "or", "of", "the", "by", "in", "with", "to", "a", "&"}
+
+
+def _is_section_header(clean: str) -> bool:
+    """ALL CAPS section header — allows lowercase connectors like 'and'."""
+    if len(clean) < 3 or "|" in clean or clean.startswith("●"):
+        return False
+    letters = re.sub(r"[^A-Za-z\s]", "", clean).strip()
+    if not letters:
+        return False
+    words = letters.split()
+    return (
+        all(w.isupper() or w.lower() in _ALLOWED_LOWER for w in words)
+        and any(w.isupper() for w in words)
+        and not _DATE_PAT.match(clean)
+    )
+
+
 def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
     if not line:
         return "blank", ""
 
-    legacy_name = re.match(r"^#\s+(.+)$", line)
-    if legacy_name:
-        return "name", legacy_name.group(1).strip()
+    # Work on a ** -stripped version for pattern matching; keep original for rendering
+    clean = _strip_bold(line)
 
-    name_match = re.match(r"^\[?(?:NAME|FULL NAME)\s*:\s*(.+?)\]?$", line, re.IGNORECASE)
-    if name_match:
-        return "name", name_match.group(1).strip()
+    # ── Horizontal divider (---, ─── etc.) ────────────────────────────────────
+    if re.fullmatch(r"[-─═]{3,}", clean):
+        return "divider", ""
 
-    contact_match = re.match(r"^\[?(?:CONTACT|CONTACT INFO)\s*:\s*(.+?)\]?$", line, re.IGNORECASE)
-    if contact_match:
-        return "contact", contact_match.group(1).strip()
+    # ── Markdown heading shortcuts ─────────────────────────────────────────────
+    if re.match(r"^#\s+", clean):
+        return "name", re.sub(r"^#+\s*", "", clean)
 
-    legacy_section = re.match(r"^##\s+(.+)$", line)
-    if legacy_section:
-        return "section", legacy_section.group(1).strip()
+    if re.match(r"^##\s+", clean):
+        return "section", re.sub(r"^#+\s*", "", clean)
 
-    if re.fullmatch(r"[A-Z][A-Z /&-]{2,}", line):
-        return "section", line
+    if re.match(r"^###\s+", clean):
+        return "entry", re.sub(r"^#+\s*", "", clean)
 
-    legacy_entry = re.match(r"^###\s+(.+)$", line)
-    if legacy_entry:
-        return "entry", legacy_entry.group(1).strip()
+    # ── Structured header markers ──────────────────────────────────────────────
+    m = re.match(r"^\[?NAME\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
+    if m:
+        return "name", m.group(1).strip()
+
+    m = re.match(r"^\[?(?:FULL NAME)\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
+    if m:
+        return "name", m.group(1).strip()
+
+    m = re.match(r"^\[?ROLE\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
+    if m:
+        return "role", m.group(1).strip()
+
+    m = re.match(r"^\[?TAGLINE\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
+    if m:
+        return "tagline", m.group(1).strip()
+
+    m = re.match(r"^\[?(?:CONTACT|CONTACT INFO)\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
+    if m:
+        return "contact", m.group(1).strip()
+
+    m = re.match(r"^\[?(?:LINKS?|PORTFOLIO|DESIGNER PORTFOLIO LINK)\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
+    if m:
+        return "contact", m.group(1).strip()
+
+    # ── Contact prefix labels (Email:, Phone:, Location:, LinkedIn: etc.) ──────
+    if _CONTACT_PREFIX.match(clean):
+        val = _CONTACT_PREFIX.sub("", clean).strip()
+        return "contact", val
+
+    # ── Lines that look like contact info within the header block (first 15) ──
+    if index < 15 and _CONTACT_CONTENT.search(clean):
+        return "contact", clean
+
+    # ── Section headers ────────────────────────────────────────────────────────
+    if _is_section_header(clean):
+        return "section", clean
+
+    # ── Bullet points ──────────────────────────────────────────────────────────
+    bullet_m = re.match(r"^[●•]\s+(.*)", line)
+    if bullet_m:
+        return "bullet", bullet_m.group(1).strip()
 
     if line.startswith("- "):
         return "bullet", line[2:].strip()
 
-    if index <= 2 and "|" in line:
-        return "contact", line
+    # ── Early contact lines (pipe-separated, within first 6 lines) ────────────
+    if index <= 5 and "|" in clean:
+        return "contact", clean
 
-    if "|" in line and index > 2:
+    # ── Entry headers (pipe-separated, after header block) ────────────────────
+    if "|" in clean and index > 5:
+        first_segment = clean.split("|")[0].strip()
+        if _DATE_PAT.match(first_segment):
+            return "date_range", clean
         return "entry", line
+
+    # ── Role-with-date lines: "ROLE TITLE - dates" (Pattern B, after header) ──
+    # Must come after section-header check; those fail because mixed-case dates
+    # break the all-caps requirement.
+    if index > 5:
+        role_m = re.match(r"^([A-Z][A-Z\s/&,]+?)\s*[-–—]\s*(.+)$", clean)
+        if role_m:
+            role_words = role_m.group(1).strip().split()
+            if role_words and all(w.isupper() for w in role_words if w.isalpha()):
+                return "role_line", line
+
+    # ── Standalone date-range lines (after header block) ──────────────────────
+    if index > 8 and _DATE_PAT.match(clean):
+        return "date_range", clean
 
     return "body", line
 
 
-def _cover_letter_line_kind(line: str) -> str:
-    """Classify a cover letter line for targeted formatting."""
-    if re.match(r"^cover letter$", line, re.IGNORECASE):
-        return "heading"
-    if re.match(r"^to (the |hiring |dear )", line, re.IGNORECASE):
-        return "greeting"
-    if re.match(r"^cheers", line, re.IGNORECASE):
-        return "signoff"
-    if re.match(r"^sincerely", line, re.IGNORECASE):
-        return "closing"
-    return "body"
+# ── Inline bold renderer ───────────────────────────────────────────────────────
 
-
-def _cover_letter_lines(content: str) -> list[str]:
-    raw = content.replace("\r\n", "\n").replace("\r", "\n").strip()
-    raw = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", raw)
-    raw = re.sub(r"\s*```$", "", raw)
-    lines = raw.split("\n")
-    cleaned = []
-    for raw_line in lines:
-        line = re.sub(r"^#{1,6}\s*", "", raw_line).strip()
-        line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", line)
-        line = re.sub(r"\s{2,}", " ", line)
-        cleaned.append(line)
-    return cleaned
+def _add_inline_runs(paragraph, text: str, size: int, bold_base: bool = False,
+                     color: Optional[RGBColor] = None) -> None:
+    """Split text on **...** and add bold/normal runs to an existing paragraph."""
+    parts = re.split(r"\*\*(.+?)\*\*", text)
+    for i, part in enumerate(parts):
+        if not part:
+            continue
+        run = paragraph.add_run(part)
+        run.bold = bold_base or (i % 2 == 1)
+        _set_run_font(run, size=size)
+        if color and not (i % 2 == 1):
+            run.font.color.rgb = color
 
 
 # ── Resume .docx ───────────────────────────────────────────────────────────────
@@ -178,17 +272,39 @@ def _build_resume_docx(content: str, path: Path) -> Path:
         if kind == "name":
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p.add_run(value)
+            run = p.add_run(value.upper())
             run.bold = True
-            _set_run_font(run, size=20)
+            _set_run_font(run, size=18)
+            _set_para_spacing(p, before=0, after=0)
+            # Hard rule directly under name — the signature style element
+            _add_full_rule(doc, before=2, after=4)
+
+        elif kind == "role":
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run(value.upper())
+            run.bold = True
+            _set_run_font(run, size=10)
             _set_para_spacing(p, before=0, after=2)
 
-        elif kind == "contact":
+        elif kind == "tagline":
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = p.add_run(value)
             _set_run_font(run, size=10)
             _set_para_spacing(p, before=0, after=2)
+
+        elif kind == "contact":
+            # Strip any remaining label prefixes that sneak through
+            display = _CONTACT_PREFIX.sub("", value).strip()
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run(display)
+            _set_run_font(run, size=10)
+            _set_para_spacing(p, before=0, after=2)
+
+        elif kind == "divider":
+            _add_full_rule(doc, before=4, after=4)
 
         elif kind == "section":
             _add_section_header(doc, value)
@@ -196,17 +312,26 @@ def _build_resume_docx(content: str, path: Path) -> Path:
         elif kind == "entry":
             _add_entry_header(doc, value)
 
-        elif kind == "bullet":
-            p = doc.add_paragraph(style="List Bullet")
-            _set_run_font(p.add_run(value), size=10)
+        elif kind == "role_line":
+            _add_role_with_date(doc, value)
+
+        elif kind == "date_range":
+            p = doc.add_paragraph()
+            run = p.add_run(_strip_bold(value))
+            _set_run_font(run, size=10)
+            run.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
             _set_para_spacing(p, before=0, after=1)
 
-        else:
+        elif kind == "bullet":
+            p = doc.add_paragraph(style="List Bullet")
+            _set_para_spacing(p, before=0, after=1)
+            _add_inline_runs(p, value, size=10)
+
+        else:  # body
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            run = p.add_run(value)
-            _set_run_font(run, size=10)
             _set_para_spacing(p, before=0, after=2)
+            _add_inline_runs(p, value, size=10)
 
         i += 1
 
@@ -215,18 +340,36 @@ def _build_resume_docx(content: str, path: Path) -> Path:
 
 def _add_section_header(doc: Document, text: str) -> None:
     p = doc.add_paragraph()
-    _set_para_spacing(p, before=6, after=2)
+    _set_para_spacing(p, before=6, after=3)
     run = p.add_run(text.upper())
     run.bold = True
     _set_run_font(run, size=11)
     run.font.color.rgb = RGBColor(0x1A, 0x1A, 0x1A)
-    _add_bottom_border(p)
+    # No underline — the --- dividers between sections are the separators
+
+
+def _add_role_with_date(doc: Document, text: str) -> None:
+    """Render 'ROLE TITLE - dates' as bold role + gray dates on one line."""
+    clean = _strip_bold(text)
+    m = re.match(r"^([A-Z][A-Z\s/&,]+?)\s*[-–—]\s*(.+)$", clean)
+    p = doc.add_paragraph()
+    _set_para_spacing(p, before=1, after=1)
+    if m:
+        run = p.add_run(m.group(1).strip())
+        run.bold = True
+        _set_run_font(run, size=10)
+        run2 = p.add_run("  –  " + m.group(2).strip())
+        _set_run_font(run2, size=10)
+        run2.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
+    else:
+        _add_inline_runs(p, text, size=10)
 
 
 def _add_entry_header(doc: Document, text: str) -> None:
-    parts = [p.strip() for p in text.split("|")]
+    clean = _strip_bold(text)
+    parts = [p.strip() for p in clean.split("|")]
     p = doc.add_paragraph()
-    _set_para_spacing(p, before=3, after=1)
+    _set_para_spacing(p, before=5, after=1)
     if parts:
         run = p.add_run(parts[0])
         run.bold = True
@@ -237,7 +380,51 @@ def _add_entry_header(doc: Document, text: str) -> None:
         run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
 
 
+def _add_full_rule(doc: Document, before: int = 0, after: int = 0) -> None:
+    """Standalone full-width horizontal rule paragraph."""
+    p = doc.add_paragraph()
+    _set_para_spacing(p, before=before, after=after)
+    # Collapse paragraph body to 1 pt so the border renders as a thin line,
+    # not a thick block (empty paragraph inherits the Normal 10 pt line height).
+    p.paragraph_format.line_spacing = Pt(1)
+    pPr = p._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), "4")
+    bottom.set(qn("w:space"), "1")
+    bottom.set(qn("w:color"), "CCCCCC")
+    pBdr.append(bottom)
+    pPr.append(pBdr)
+
+
 # ── Cover Letter .docx ─────────────────────────────────────────────────────────
+
+def _cover_letter_line_kind(line: str) -> str:
+    if re.match(r"^cover letter$", line, re.IGNORECASE):
+        return "heading"
+    if re.match(r"^to (the |hiring |dear |\w)", line, re.IGNORECASE):
+        return "greeting"
+    if re.match(r"^cheers", line, re.IGNORECASE):
+        return "signoff"
+    if re.match(r"^sincerely", line, re.IGNORECASE):
+        return "closing"
+    return "body"
+
+
+def _cover_letter_lines(content: str) -> list[str]:
+    raw = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+    raw = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    cleaned = []
+    for raw_line in raw.split("\n"):
+        line = re.sub(r"^#{1,6}\s*", "", raw_line).strip()
+        line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", line)
+        line = re.sub(r"[_`~]+", "", line)   # strip ticks/underscores, keep *
+        line = re.sub(r"\s{2,}", " ", line)
+        cleaned.append(line)
+    return cleaned
+
 
 def _build_cover_letter_docx(content: str, path: Path) -> Path:
     doc = Document()
@@ -254,44 +441,50 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
             continue
 
         kind = _cover_letter_line_kind(line)
+        clean = _strip_bold(line)
 
         if kind == "heading":
             p = doc.add_paragraph()
-            run = p.add_run(line)
+            run = p.add_run(clean)
             run.bold = True
             _set_run_font(run, size=14)
             _set_para_spacing(p, before=0, after=10)
 
         elif kind == "greeting":
             p = doc.add_paragraph()
-            run = p.add_run(line)
+            run = p.add_run(clean)
             run.bold = True
             _set_run_font(run, size=11)
             _set_para_spacing(p, before=6, after=4)
 
         elif kind == "signoff":
             p = doc.add_paragraph()
-            _set_run_font(p.add_run(line), size=11)
-            _set_para_spacing(p, before=8, after=16)
+            _set_run_font(p.add_run(clean), size=11)
+            _set_para_spacing(p, before=10, after=16)
             in_closing = True
 
         elif kind == "closing":
             p = doc.add_paragraph()
-            _set_run_font(p.add_run(line), size=11)
+            _set_run_font(p.add_run(clean), size=11)
             _set_para_spacing(p, before=0, after=2)
 
         else:
-            # In closing block: bold the owner name line
-            if in_closing and not line.startswith("http") and not re.match(r".+@.+\..+", line):
+            if in_closing:
+                # Closing block: bold the name line, plain for email/url
+                is_url_or_email = line.startswith("http") or re.match(r".+@.+\..+", line)
                 p = doc.add_paragraph()
-                run = p.add_run(line)
-                run.bold = True
-                _set_run_font(run, size=11)
+                if is_url_or_email:
+                    _set_run_font(p.add_run(clean), size=11)
+                else:
+                    run = p.add_run(clean)
+                    run.bold = True
+                    _set_run_font(run, size=11)
                 _set_para_spacing(p, before=0, after=2)
             else:
+                # Body paragraph — render inline bold from **...**
                 p = doc.add_paragraph()
-                _set_run_font(p.add_run(line), size=11)
-                _set_para_spacing(p, before=0, after=4)
+                _set_para_spacing(p, before=0, after=6)
+                _add_inline_runs(p, line, size=11)
 
     return _save_document(doc, path)
 
@@ -305,7 +498,7 @@ def _to_pdf(docx_path: Path) -> Optional[str]:
         convert(str(docx_path), str(pdf_path))
         return str(pdf_path) if pdf_path.exists() else None
     except Exception:
-        return None  # PDF conversion is best-effort; .docx always saved
+        return None
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -350,15 +543,3 @@ def _save_document(doc: Document, path: Path) -> Path:
 def _set_para_spacing(p, before: int = 0, after: int = 4) -> None:
     p.paragraph_format.space_before = Pt(before)
     p.paragraph_format.space_after = Pt(after)
-
-
-def _add_bottom_border(paragraph) -> None:
-    pPr = paragraph._p.get_or_add_pPr()
-    pBdr = OxmlElement("w:pBdr")
-    bottom = OxmlElement("w:bottom")
-    bottom.set(qn("w:val"), "single")
-    bottom.set(qn("w:sz"), "4")
-    bottom.set(qn("w:space"), "1")
-    bottom.set(qn("w:color"), "CCCCCC")
-    pBdr.append(bottom)
-    pPr.append(pBdr)

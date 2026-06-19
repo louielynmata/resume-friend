@@ -191,7 +191,7 @@ To have job applications logged automatically:
 
 | Property name      | Type                                            | Notes                              |
 | ------------------ | ----------------------------------------------- | ---------------------------------- |
-| ID                 | Title                                           | The default title column, renamed to `ID` |
+| Title              | Title                                           | The default Notion title column — keep the name `Title` |
 | Company            | Text                                            |                                    |
 | Position           | Text                                            |                                    |
 | Status             | Select                                          | Add option: `Applied`              |

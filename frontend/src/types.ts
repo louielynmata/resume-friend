@@ -20,6 +20,7 @@ export interface GeneratePayload {
   salary_hourly?: number;
   date_job_posted?: string;
   contact_email?: string;
+  company_context?: string;
 }
 
 export interface JobMeta {

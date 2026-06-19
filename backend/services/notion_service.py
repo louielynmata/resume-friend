@@ -19,10 +19,12 @@ async def log_application(
     client = AsyncClient(auth=settings.notion_token)
 
     properties: dict = {
-        "ID": {"title": [{"text": {"content": folder_name}}]},
-        "Company": {"rich_text": [{"text": {"content": company}}]},
+        # Company is the title/Name column; Title is a plain rich_text column
+        "Company": {"title": [{"text": {"content": company}}]},
+        "Title": {"rich_text": [{"text": {"content": folder_name}}]},
         "Position": {"rich_text": [{"text": {"content": position}}]},
-        "Status": {"select": {"name": "Applied"}},
+        # Status is multi_select in this database
+        "Status": {"multi_select": [{"name": "Applied"}]},
         "Sent Resume": {"checkbox": False},
         "AI Resume": {"checkbox": bool(ai_used)},
         "ATS Use": {"checkbox": True},
@@ -31,7 +33,7 @@ async def log_application(
     }
 
     if location:
-        properties["Location"] = {"rich_text": [{"text": {"content": location}}]}
+        properties["Location"] = {"select": {"name": location}}
     if salary_annual is not None:
         properties["Salary (Annual)"] = {"number": salary_annual}
     if salary_hourly is not None:

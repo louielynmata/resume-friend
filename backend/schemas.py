@@ -37,6 +37,7 @@ class GenerateRequest(BaseModel):
     salary_hourly: Optional[float] = None
     date_job_posted: Optional[date] = None
     contact_email: Optional[str] = None
+    company_context: Optional[str] = None
 
 
 class GenerateResponse(BaseModel):

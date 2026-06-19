@@ -114,13 +114,19 @@ async def generate(req: GenerateRequest):
             hint="Fill in the model file with your real resume or prompt content before generating.",
         )
 
+    company_context_section = ""
+    if req.company_context:
+        trimmed = req.company_context[:4000]
+        company_context_section = f"\n--- COMPANY CONTEXT (About Page) ---\n{trimmed}\n"
+
     system_prompt = f"""You are a professional resume and cover letter writer assisting {settings.owner_name}.
 
 CORE RULES — follow strictly:
 1. TRUTHFUL: Only use information present in the provided resume. Never invent skills, experiences, or qualifications.
 2. JD KEYWORD ANALYSIS: Before writing, extract must-have keywords, skills, tools, and phrases from the job description. Naturally incorporate every matching keyword where it genuinely reflects actual experience. Prioritize and reorder content so the most JD-relevant items appear first.
-3. HUMANIZED: Match the writing style shown in the examples. Avoid generic AI phrases like "results-driven professional" or "dynamic team player." No em dashes.
-4. FORMATTING: Follow the INSTRUCTIONS section exactly — section names, header structure, bullet style, entry format, and horizontal rule placement. Do not invent your own structure.
+3. COMPANY ALIGNMENT: If Company Context is provided, use it to understand the company's mission, values, products, and culture. Reference these specifically in the cover letter to show genuine interest. Align tone and framing with the company's voice. Do not fabricate facts about the company — only use what is in the context.
+4. HUMANIZED: Match the writing style shown in the examples. Avoid generic AI phrases like "results-driven professional" or "dynamic team player." No em dashes.
+5. FORMATTING: Follow the INSTRUCTIONS section exactly — section names, header structure, bullet style, entry format, and horizontal rule placement. Do not invent your own structure.
 
 --- {req.job_type.upper()} RESUME ---
 {resume_content}
@@ -133,23 +139,67 @@ CORE RULES — follow strictly:
 
 --- EDUCATION / TRANSCRIPT ---
 {transcript}
-
-OUTPUT FORMAT — output exactly three XML-tagged sections, nothing else outside the tags:
+{company_context_section}
+OUTPUT FORMAT — output exactly three XML-tagged sections. Nothing outside the tags.
 
 <RESUME>
-[Full resume following the INSTRUCTIONS formatting rules exactly — section headers in ALL CAPS, name in ALL CAPS centered, horizontal rule directly under name, bullets using ●, bold key phrases inline, work entries using the two-pattern system from the instructions, skills categories inline on same line as bold label]
+NAME: {settings.owner_name}
+ROLE: [PRIMARY ROLE TITLE IN ALL CAPS — tailored to this specific job]
+CONTACT: louielynmata@gmail.com | +1 825 558 0107  Calgary, AB
+LINKS: linkedin.com/in/louielynmata | github.com/louielynmata
+
+PROFESSIONAL SUMMARY
+[3–5 sentences. Use **bold** inline for key phrases. No em dashes.]
+
+---
+
+[SECTION HEADER IN ALL CAPS]
+[Content — use ● for all bullets, **bold text** for key phrases inside bullets and body only]
+
+---
+
+[Continue all sections — place --- between every major section group]
 </RESUME>
+
+RESUME FORMAT RULES — non-negotiable:
+- NAME:, ROLE:, CONTACT: are required exactly as shown — the document builder depends on them
+- CONTACT: must be ONE compact line. Do NOT write "Email:" "Phone:" "Location:" labels anywhere — values only
+- ● is the only bullet character. Never use - * numbers.
+- **bold** applies only inside bullet text and paragraph body — never on section headers or role/company names
+- --- goes on its own line ONLY between major section groups (e.g., after the skills section, before education). NEVER between individual job entries, NEVER between bullets.
+- Target 2 pages maximum. Include all relevant content — do not aggressively cut for 1 page.
+
+WORK ENTRY FORMAT — two patterns only, no other format allowed:
+
+Pattern A (role is the headline — use for a single role at a company):
+ROLE TITLE IN ALL CAPS
+Company Name - context / Start Date - End Date
+
+● Bullet with **bold key phrase**
+
+Pattern B (company is the headline — use when company is well-known or multiple roles):
+Company Name, (context in parentheses)
+ROLE TITLE ONE - Start Date – End Date (type)
+ROLE TITLE TWO - Start Date – End Date (type)
+
+● Bullet with **bold key phrase**
+
+RULES FOR ENTRIES:
+- Each role title gets its OWN separate line — never cram multiple roles on one pipe-separated line
+- Role titles are ALWAYS in ALL CAPS followed by a dash and dates on the same line
+- Do NOT add a standalone descriptive subtitle line before the company or role
+- Do NOT use | pipe inside work entries (pipe is only for contact lines and company | context pairs)
 
 <COVER_LETTER>
 Cover Letter
 
-To the [Hiring Team / specific team name if known],
+To the [Hiring Team / specific team name if available],
 
-[Opening paragraph — specific, tailored to this company and role, do NOT open with "I am excited to apply" or generic lines]
+[Opening paragraph — specific to this company and role. Do NOT open with "I am excited to apply" or any generic line.]
 
-[Body paragraph — 2-3 concrete examples from the resume that match this specific role]
+[Body paragraph — 2–3 concrete examples from the resume that match this specific role]
 
-[Closing paragraph — why this company or team, forward-looking]
+[Closing paragraph — why this company or team matters, forward-looking]
 
 Cheers and all the best!
 
@@ -215,10 +265,11 @@ Target Company: {req.company}"""
 
     analysis_text = _extract_analysis(ai_response)
 
+    name_slug = _slugify(settings.owner_name)
     position_slug = _slugify(req.position)
     company_slug = _slugify(req.company)
     today_str = date.today().strftime("%Y-%m-%d")
-    folder_name = f"{company_slug}_{position_slug}_{today_str}"
+    folder_name = f"{name_slug}_{position_slug}_{today_str}"
 
     output_dir = settings.output_path / folder_name
     output_dir.mkdir(parents=True, exist_ok=True)

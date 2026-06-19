@@ -4,14 +4,20 @@ import { api } from "../api/client";
 interface Props {
   value: string;
   onChange: (text: string) => void;
+  companyContext: string;
+  onCompanyContextChange: (text: string) => void;
   onNext: () => void;
 }
 
-export function StepJobInput({ value, onChange, onNext }: Props) {
+export function StepJobInput({ value, onChange, companyContext, onCompanyContextChange, onNext }: Props) {
   const [mode, setMode] = useState<"text" | "url">("text");
   const [url, setUrl] = useState("");
   const [scraping, setScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState("");
+
+  const [companyUrl, setCompanyUrl] = useState("");
+  const [scrapingCompany, setScrapingCompany] = useState(false);
+  const [companyError, setCompanyError] = useState("");
 
   async function handleScrape() {
     if (!url.trim()) return;
@@ -26,6 +32,26 @@ export function StepJobInput({ value, onChange, onNext }: Props) {
     } finally {
       setScraping(false);
     }
+  }
+
+  async function handleScrapeCompany() {
+    if (!companyUrl.trim()) return;
+    setScrapingCompany(true);
+    setCompanyError("");
+    try {
+      const result = await api.scrapeJob(companyUrl.trim());
+      onCompanyContextChange(result.text);
+    } catch (e: unknown) {
+      setCompanyError(e instanceof Error ? e.message : "Failed to fetch company page");
+    } finally {
+      setScrapingCompany(false);
+    }
+  }
+
+  function clearCompany() {
+    onCompanyContextChange("");
+    setCompanyUrl("");
+    setCompanyError("");
   }
 
   return (
@@ -91,10 +117,57 @@ export function StepJobInput({ value, onChange, onNext }: Props) {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Paste the full job description here…"
-          rows={14}
+          rows={12}
           className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-indigo-400"
         />
       )}
+
+      {/* Company About Page */}
+      <div className="border-t border-slate-200 pt-4 space-y-2">
+        <div>
+          <p className="text-sm font-medium text-slate-700">
+            Company Website{" "}
+            <span className="text-xs text-slate-400 font-normal">— optional</span>
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Paste the company's About page URL. The AI will use their mission, values, and culture to
+            personalise the cover letter and tailor the analysis.
+          </p>
+        </div>
+
+        {companyContext ? (
+          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+            <p className="text-xs text-green-700">
+              ✓ About page fetched — {companyContext.length.toLocaleString()} chars
+            </p>
+            <button
+              onClick={clearCompany}
+              className="text-xs text-slate-400 hover:text-slate-600 underline ml-4"
+            >
+              Clear
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={companyUrl}
+              onChange={(e) => setCompanyUrl(e.target.value)}
+              placeholder="https://company.com/about"
+              className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              onKeyDown={(e) => e.key === "Enter" && handleScrapeCompany()}
+            />
+            <button
+              onClick={handleScrapeCompany}
+              disabled={!companyUrl.trim() || scrapingCompany}
+              className="px-3 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              {scrapingCompany ? "Fetching…" : "Fetch"}
+            </button>
+          </div>
+        )}
+        {companyError && <p className="text-red-500 text-xs">{companyError}</p>}
+      </div>
 
       <div className="flex justify-end">
         <button

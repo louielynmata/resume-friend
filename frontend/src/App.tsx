@@ -83,6 +83,7 @@ function buildGenerationFeed(
 export default function App() {
   const [step, setStep] = useState(0);
   const [jd, setJd] = useState("");
+  const [companyContext, setCompanyContext] = useState("");
   const [aiProvider, setAiProvider] = useState<AIProvider>("claude");
   const [jobType, setJobType] = useState<JobType>("development");
   const [meta, setMeta] = useState<JobMeta>(DEFAULT_META);
@@ -254,6 +255,7 @@ export default function App() {
           : undefined,
         date_job_posted: meta.date_job_posted || undefined,
         contact_email: meta.contact_email || undefined,
+        company_context: companyContext || undefined,
       });
       stopGenerationTicker();
       markGenerationComplete();
@@ -290,6 +292,7 @@ export default function App() {
   function handleReset() {
     setStep(0);
     setJd("");
+    setCompanyContext("");
     setMeta(DEFAULT_META);
     setMetaTouched(DEFAULT_META_TOUCHED);
     setResult(null);
@@ -366,6 +369,8 @@ export default function App() {
             <StepJobInput
               value={jd}
               onChange={setJd}
+              companyContext={companyContext}
+              onCompanyContextChange={setCompanyContext}
               onNext={() => setStep(1)}
             />
           )}

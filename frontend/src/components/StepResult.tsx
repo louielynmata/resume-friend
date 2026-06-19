@@ -316,85 +316,74 @@ export function StepResult({ result, onReset }: Props) {
         </div>
       </div>
 
-      {/* Two-column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+      <div className="space-y-4">
 
-        {/* LEFT — files + folder + notion */}
-        <div className="lg:col-span-2 space-y-4">
-
-          {/* Saved to */}
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Saved to</p>
-            <p className="text-xs font-mono text-slate-600 break-all leading-relaxed">{result.output_folder}</p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={handleOpenFolder}
-                disabled={isOpeningFolder}
-                className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-              >
-                {isOpeningFolder ? "Opening..." : "Open Folder"}
-              </button>
-              {folderError && <p className="text-xs text-red-600">{folderError}</p>}
-            </div>
+        {/* Saved to */}
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Saved to</p>
+          <p className="text-sm font-mono text-slate-700 break-all">{result.output_folder}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleOpenFolder}
+              disabled={isOpeningFolder}
+              className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+            >
+              {isOpeningFolder ? "Opening..." : "Open Folder"}
+            </button>
+            {folderError && <p className="text-sm text-red-600">{folderError}</p>}
           </div>
-
-          {/* Generated files */}
-          <div className="bg-white border border-slate-200 rounded-lg p-4">
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">Generated Files</p>
-            <FileRow label="Resume" docx={result.resume_docx} pdf={result.resume_pdf} />
-            <FileRow label="Cover Letter" docx={result.cover_letter_docx} pdf={result.cover_letter_pdf} />
-          </div>
-
-          {/* Notion */}
-          <div className="bg-white border border-slate-200 rounded-lg p-4">
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Notion Tracking</p>
-            {result.notion_page_url ? (
-              <a
-                href={result.notion_page_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-indigo-600 hover:underline break-all"
-              >
-                ↗ Open in Notion
-              </a>
-            ) : result.notion_error ? (
-              <div className="space-y-1.5">
-                <p className="text-xs text-red-600 font-medium">Notion logging failed</p>
-                <p className="text-xs text-red-500 break-all font-mono bg-red-50 border border-red-100 rounded p-2 leading-relaxed">
-                  {result.notion_error}
-                </p>
-                <p className="text-xs text-slate-400">
-                  Run <span className="font-mono bg-slate-100 px-1 rounded">GET /api/notion/test</span> to diagnose.
-                </p>
-              </div>
-            ) : (
-              <p className="text-xs text-slate-400">
-                Not logged — add NOTION_TOKEN and NOTION_DATABASE_ID to .env to enable.
-              </p>
-            )}
-          </div>
-
-          <button
-            onClick={onReset}
-            className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
-          >
-            Generate Another
-          </button>
         </div>
 
-        {/* RIGHT — AI analysis */}
-        <div className="lg:col-span-3">
-          {result.analysis ? (
-            <div className="bg-white border border-slate-200 rounded-lg p-4 h-full min-h-80">
-              <AnalysisPanel raw={result.analysis} />
+        {/* Generated files */}
+        <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">Generated Files</p>
+          <FileRow label="Resume" docx={result.resume_docx} pdf={result.resume_pdf} />
+          <FileRow label="Cover Letter" docx={result.cover_letter_docx} pdf={result.cover_letter_pdf} />
+        </div>
+
+        {/* AI Analysis — full width */}
+        {result.analysis ? (
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <AnalysisPanel raw={result.analysis} />
+          </div>
+        ) : null}
+
+        {/* Notion */}
+        <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Notion Tracking</p>
+          {result.notion_page_url ? (
+            <a
+              href={result.notion_page_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-indigo-600 hover:underline break-all"
+            >
+              ↗ Open in Notion
+            </a>
+          ) : result.notion_error ? (
+            <div className="space-y-1.5">
+              <p className="text-xs text-red-600 font-medium">Notion logging failed</p>
+              <p className="text-xs text-red-500 break-all font-mono bg-red-50 border border-red-100 rounded p-2 leading-relaxed">
+                {result.notion_error}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Run <span className="font-mono bg-slate-100 px-1 rounded">GET /api/notion/test</span> to diagnose.
+              </p>
             </div>
           ) : (
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 flex items-center justify-center min-h-40">
-              <p className="text-xs text-slate-400">No analysis returned by the AI provider.</p>
-            </div>
+            <p className="text-sm text-slate-400">
+              Not logged — add NOTION_TOKEN and NOTION_DATABASE_ID to .env to enable.
+            </p>
           )}
         </div>
+
+        <button
+          onClick={onReset}
+          className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
+        >
+          Generate Another
+        </button>
 
       </div>
     </div>

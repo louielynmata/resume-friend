@@ -4,10 +4,10 @@ from ..config import settings
 router = APIRouter(prefix="/api/notion", tags=["notion"])
 
 REQUIRED_PROPERTIES = {
-    "ID": "title",
-    "Company": "rich_text",
+    "Company": "title",          # Company is the Notion title/Name column
+    "Title": "rich_text",        # Title is a plain text column
     "Position": "rich_text",
-    "Status": "select",
+    "Status": "multi_select",    # multi_select, not select
     "Sent Resume": "checkbox",
     "AI Resume": "checkbox",
     "ATS Use": "checkbox",
@@ -15,7 +15,9 @@ REQUIRED_PROPERTIES = {
     "Salary (Annual)": "number",
     "Salary (By Hour)": "number",
     "Date of Submission": "date",
+    "Date of Job Posting": "date",
     "Contact": "email",
+    "Location": "select",
 }
 
 
