@@ -73,7 +73,10 @@ def _is_locked_word_document(path: Path) -> bool:
 
 def _normalize_document_text(content: str) -> list[str]:
     normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
-    normalized = re.sub(r"\s*—\s*", " - ", normalized)  # em dash → hyphen
+    # Replace em dash and en dash used as sentence separators with a plain hyphen.
+    # En dash between digits is kept (date ranges like 2024-2026 are fine as hyphens).
+    normalized = re.sub(r"\s*—\s*", " - ", normalized)         # em dash (U+2014)
+    normalized = re.sub(r"(?<!\d)\s*–\s*(?!\d)", " - ", normalized)  # en dash not between digits
     normalized = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", normalized)
     normalized = re.sub(r"\s*```$", "", normalized)
 
@@ -90,6 +93,10 @@ def _normalize_document_text(content: str) -> list[str]:
     lines: list[str] = []
     for raw_line in expanded:
         line = raw_line.strip()
+        if _ARTIFACT_PAT.match(line):  # drop system-prompt separator echoes
+            continue
+        if _META_COMMENTARY_PAT.search(line):  # drop AI self-commentary embedded in body text
+            continue
         # Convert other bullet styles → ● (only when followed by a space, so --- is safe)
         line = re.sub(r"^\s{0,3}[+]\s", "● ", line)
         line = re.sub(r"^\s{0,3}-\s(?!-)", "● ", line)   # - space, not --
@@ -137,6 +144,33 @@ _CONTACT_CONTENT = re.compile(
 
 _ALLOWED_LOWER = {"and", "or", "of", "the", "by", "in", "with", "to", "a", "&"}
 
+# System-prompt section labels that the AI occasionally echoes — never treat as headers
+_BLOCKED_SECTION_NAMES = frozenset({
+    "INSTRUCTIONS", "WRITING STYLE EXAMPLES", "WRITING STYLE",
+    "TRANSCRIPT", "ANALYSIS",
+})
+
+# Lines matching this pattern are system-prompt artifacts or AI meta-commentary — drop them entirely
+_ARTIFACT_PAT = re.compile(
+    r"^(instructions|writing\s+style\s+examples?|transcript|analysis)\s*[-─═]*$"
+    r"|^\(this section is reserved"
+    r"|^\(note[:\s]"
+    r"|^\[note[:\s]",
+    re.IGNORECASE,
+)
+
+# Phrases that indicate AI self-commentary embedded in resume body text — drop any line containing these
+_META_COMMENTARY_PAT = re.compile(
+    r"placeholder\s+section"
+    r"|reserved\s+to\s+structure"
+    r"|left\s+to\s+structure"
+    r"|no\s+dates\s+or\s+details\s+are\s+added"
+    r"|ensuring\s+all\s+roles\s+appear"
+    r"|as\s+per\s+(?:formatting|instructions?)\s+rules"
+    r"|this\s+section\s+is\s+(?:left|reserved|used|here)",
+    re.IGNORECASE,
+)
+
 
 def _is_section_header(clean: str) -> bool:
     """ALL CAPS section header — allows lowercase connectors like 'and'."""
@@ -146,6 +180,8 @@ def _is_section_header(clean: str) -> bool:
         return False
     letters = re.sub(r"[^A-Za-z\s]", "", clean).strip()
     if not letters:
+        return False
+    if letters.upper() in _BLOCKED_SECTION_NAMES:  # reject system-prompt echo artifacts
         return False
     words = letters.split()
     if len(words) > 5:  # section headers are short; long phrases are company/institution names
@@ -199,8 +235,11 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
     if m:
         return "contact", m.group(1).strip()
 
-    m = re.match(r"^\[?(?:LINKS?|PORTFOLIO|DESIGNER PORTFOLIO LINK)\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
+    m = re.match(r"^\[?(?:LINKS?|PORTFOLIO|DESIGNER PORTFOLIO(?:\s+LINK)?)\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
     if m:
+        # Keep the full line for DESIGNER PORTFOLIO so the label stays visible in the rendered doc
+        if re.match(r"^\[?DESIGNER PORTFOLIO", clean, re.IGNORECASE):
+            return "contact", clean
         return "contact", m.group(1).strip()
 
     # ── Contact prefix labels (Email:, Phone:, Location:, LinkedIn: etc.) ──────
@@ -259,6 +298,10 @@ _URL_LINK_PAT = re.compile(
     re.IGNORECASE,
 )
 
+# Maps specific URLs to short display labels. Portfolio folder URL is intentionally absent
+# so the full URL is displayed as-is (user preference: show the real link).
+_URL_LABELS: dict[str, str] = {}
+
 
 def _ensure_url(text: str) -> str:
     return text if text.startswith("http") else f"https://{text}"
@@ -309,7 +352,9 @@ def _add_contact_line(paragraph, text: str, size: int) -> None:
         if not seg:
             continue
         if _URL_LINK_PAT.fullmatch(seg):
-            _add_hyperlink(paragraph, seg, _ensure_url(seg), size)
+            url = _ensure_url(seg)
+            display = _URL_LABELS.get(url, seg)
+            _add_hyperlink(paragraph, display, url, size)
         else:
             run = paragraph.add_run(seg)
             _set_run_font(run, size=size)
@@ -361,7 +406,7 @@ def _build_resume_docx(content: str, path: Path) -> Path:
         elif kind == "role":
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p.add_run(value.upper())
+            run = p.add_run(value)
             run.bold = True
             _set_run_font(run, size=10)
             _set_para_spacing(p, before=0, after=2)
@@ -417,7 +462,11 @@ def _build_resume_docx(content: str, path: Path) -> Path:
 
 
 def _add_section_header(doc: Document, text: str) -> None:
-    text = re.sub(r"^-+\s*", "", text)  # strip any leading dashes that slipped through
+    text = re.sub(r"^-+\s*", "", text)   # strip leading dashes
+    text = re.sub(r"\s*-+$", "", text)   # strip trailing dashes
+    text = text.strip()
+    if not text:
+        return
     p = doc.add_paragraph()
     _set_para_spacing(p, before=6, after=3)
     run = p.add_run(text.upper())
@@ -492,7 +541,8 @@ def _cover_letter_line_kind(line: str) -> str:
 
 def _cover_letter_lines(content: str) -> list[str]:
     raw = content.replace("\r\n", "\n").replace("\r", "\n").strip()
-    raw = re.sub(r"\s*—\s*", " - ", raw)  # em dash → hyphen
+    raw = re.sub(r"\s*—\s*", " - ", raw)                         # em dash (U+2014)
+    raw = re.sub(r"(?<!\d)\s*–\s*(?!\d)", " - ", raw)            # en dash not between digits
     raw = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     cleaned = []
@@ -526,25 +576,25 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
             p = doc.add_paragraph()
             run = p.add_run(clean)
             run.bold = True
-            _set_run_font(run, size=14)
+            _set_run_font(run, size=12)
             _set_para_spacing(p, before=0, after=10)
 
         elif kind == "greeting":
             p = doc.add_paragraph()
             run = p.add_run(clean)
             run.bold = True
-            _set_run_font(run, size=11)
+            _set_run_font(run, size=10)
             _set_para_spacing(p, before=6, after=4)
 
         elif kind == "signoff":
             p = doc.add_paragraph()
-            _set_run_font(p.add_run(clean), size=11)
+            _set_run_font(p.add_run(clean), size=10)
             _set_para_spacing(p, before=10, after=16)
             in_closing = True
 
         elif kind == "closing":
             p = doc.add_paragraph()
-            _set_run_font(p.add_run(clean), size=11)
+            _set_run_font(p.add_run(clean), size=10)
             _set_para_spacing(p, before=0, after=2)
 
         else:
@@ -553,19 +603,19 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
                 is_url_or_email = line.startswith("http") or re.match(r".+@.+\..+", line)
                 p = doc.add_paragraph()
                 if is_url_or_email and line.startswith("http"):
-                    _add_hyperlink(p, clean, clean, size=11)
+                    _add_hyperlink(p, clean, clean, size=10)
                 elif is_url_or_email:
-                    _set_run_font(p.add_run(clean), size=11)
+                    _set_run_font(p.add_run(clean), size=10)
                 else:
                     run = p.add_run(clean)
                     run.bold = True
-                    _set_run_font(run, size=11)
+                    _set_run_font(run, size=10)
                 _set_para_spacing(p, before=0, after=2)
             else:
                 # Body paragraph — render inline bold from **...**
                 p = doc.add_paragraph()
                 _set_para_spacing(p, before=0, after=6)
-                _add_inline_runs(p, line, size=11)
+                _add_inline_runs(p, line, size=10)
 
     return _save_document(doc, path)
 
