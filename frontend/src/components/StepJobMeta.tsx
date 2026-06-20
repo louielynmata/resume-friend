@@ -58,6 +58,22 @@ export function StepJobMeta({
   const set = (key: keyof JobMeta) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...meta, [key]: e.target.value });
 
+  const HOURS_PER_YEAR = 2080;
+
+  function handleAnnualChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value;
+    const num = parseFloat(raw);
+    const hourly = raw && !isNaN(num) ? (num / HOURS_PER_YEAR).toFixed(2) : "";
+    onChange({ ...meta, salary_annual: raw, salary_hourly: hourly });
+  }
+
+  function handleHourlyChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value;
+    const num = parseFloat(raw);
+    const annual = raw && !isNaN(num) ? String(Math.round(num * HOURS_PER_YEAR)) : "";
+    onChange({ ...meta, salary_hourly: raw, salary_annual: annual });
+  }
+
   const canGenerate = meta.position.trim() && meta.company.trim();
 
   return (
@@ -148,7 +164,7 @@ export function StepJobMeta({
           <input
             type="number"
             value={meta.salary_annual}
-            onChange={set("salary_annual")}
+            onChange={handleAnnualChange}
             placeholder="e.g. 85000"
             className={inputClass}
           />
@@ -158,7 +174,7 @@ export function StepJobMeta({
           <input
             type="number"
             value={meta.salary_hourly}
-            onChange={set("salary_hourly")}
+            onChange={handleHourlyChange}
             placeholder="e.g. 42.50"
             step="0.01"
             className={inputClass}
