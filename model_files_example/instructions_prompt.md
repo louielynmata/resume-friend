@@ -83,7 +83,7 @@ PROFESSIONAL SUMMARY RULES:
 - Prose paragraph only — no bullets.
 - 3 to 5 sentences maximum.
 - Lead with the most relevant positioning for this specific role.
-- Do not start with "I" as the first word — open with a role descriptor.
+- The entire resume is written in third-person — no "I", "my", or "me" anywhere in the resume. Open the summary with a role descriptor (e.g., "Award-winning Creative Director with...").
 - Preserve my voice: direct, thoughtful, confident, grounded, human — not corporate.
 - Avoid all generic filler: "results-driven", "dynamic team player", "passionate self-starter", and similar phrases.
 - No em dashes.
@@ -282,7 +282,8 @@ Rules:
 - "Cover Letter" is the document heading — bold, left-aligned.
 - Greeting "To the [Team]," is bold.
 - 3 to 4 short paragraphs total.
-- Do NOT open with "I am excited to apply for...", "I am writing to express my interest...", or any generic opener.
+- MANDATORY: Write the entire cover letter in first-person. Use "I", "my", "me" throughout — this is a personal letter, not a third-person bio.
+- Do NOT open with "I am excited to apply for...", "I am writing to express my interest...", or any generic opener. Instead open with a specific, compelling hook that uses "I" naturally.
 - Sound like I am writing to a real person — warm, direct, sincere.
 - Be specific about why this company, role, or product matters to me.
 - Preserve warmth and confidence without sounding needy.

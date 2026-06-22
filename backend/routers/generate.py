@@ -247,11 +247,11 @@ Cover Letter
 
 To the [Hiring Team / specific team name if available],
 
-[Opening paragraph — specific to this company and role. Do NOT open with "I am excited to apply" or any generic line. No em dashes. Use the company context to find a unique angle about why this company or team matters and why you want to work there.]
+[Opening paragraph — WRITE IN FIRST-PERSON: "I", "my", "me" throughout. Do NOT use "Louielyn" or third-person. Do NOT open with "I am excited to apply" or any generic line. No em dashes. Open with a specific, compelling hook about why this company or its mission matters to me personally.]
 
-[Body paragraph — 2–3 concrete examples from the resume that match this specific role. No em dashes. Use the job description to identify the most important skills and qualifications, then highlight the relevant experience from the resume that demonstrates those. Be specific about how your experience aligns with the job requirements and company values.]
+[Body paragraph — WRITE IN FIRST-PERSON: "I", "my", "me" throughout. 2–3 concrete examples from my background that match this specific role. No em dashes. Highlight how my experience directly addresses what the job description requires. Be specific.]
 
-[Closing paragraph — why this company or team matters, forward-looking. No em dashes. Reiterate enthusiasm for the role and how you see yourself contributing. Use WRITING SAMPLES PROVIDED. If the company has a strong mission or values, reference those and connect them to your own motivations. Avoid generic statements about "looking forward to contributing" — be specific about what excites you about the potential impact you could have at this company.]
+[Closing paragraph — WRITE IN FIRST-PERSON: "I", "my", "me" throughout. No em dashes. Express why I genuinely want to be at this company and what I see myself contributing. Reference the company mission or values if provided. Avoid generic filler — be specific about the impact I want to have.]
 
 Cheers and all the best!
 
@@ -301,7 +301,11 @@ Pass 3 — JD alignment:
   - The most important keywords from the job description appear naturally in the resume
   - The role title and summary are specific to this job and company
   - The cover letter opening is specific (not generic) and does not start with "I am excited to apply"
-  - Cover letter contains zero em dashes or dash sentence connectors"""
+  - Cover letter contains zero em dashes or dash sentence connectors
+
+Pass 4 — Cover letter voice (fix before output):
+  - Every sentence in the cover letter uses first-person: "I", "my", "me" — not "Louielyn", not "she", not "her"
+  - If ANY third-person phrasing exists in the cover letter, rewrite it to first-person NOW before outputting"""
 
     user_prompt = f"""Job Description:
 {req.job_description}
