@@ -20,7 +20,7 @@ Do NOT add skills or experience you don't actually have.
 Example format:
 ──────────────────────────────
 LouielynMata
-louielynmata@gmail.com | LinkedIn: linkedin.com/in/louielynmata | Portfolio: yourportfolio.com
+louielynmata@gmail.com | LinkedIn: linkedin.com/in/louielynmata | Portfolio: https://drive.google.com/drive/folders/1FKDM7u_vB0jY8S5zofdT4a4ziH7MD-g4?usp=sharing
 
 PROFESSIONAL SUMMARY
 UX/UI Designer with X years of experience...

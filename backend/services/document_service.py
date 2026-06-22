@@ -104,8 +104,9 @@ def _normalize_document_text(content: str) -> list[str]:
         line = re.sub(r"^\s{0,3}\d+\.\s", "● ", line)
         # Unwrap markdown links
         line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", line)
-        # Strip underscores, backticks, tildes — but KEEP asterisks for inline bold
-        line = re.sub(r"[_`~]+", "", line)
+        # Strip markdown formatting underscores/backticks/tildes — but KEEP asterisks for inline bold.
+        # Only strip underscores at word boundaries (markdown _italic_), not inside URLs/words.
+        line = re.sub(r"(?<![a-zA-Z0-9])_+(?![a-zA-Z0-9])|[`~]+", "", line)
         line = re.sub(r"\s{2,}", " ", line).strip()
         lines.append(line)
 
@@ -549,7 +550,7 @@ def _cover_letter_lines(content: str) -> list[str]:
     for raw_line in raw.split("\n"):
         line = re.sub(r"^#{1,6}\s*", "", raw_line).strip()
         line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", line)
-        line = re.sub(r"[_`~]+", "", line)   # strip ticks/underscores, keep *
+        line = re.sub(r"(?<![a-zA-Z0-9])_+(?![a-zA-Z0-9])|[`~]+", "", line)   # strip markdown formatting, preserve in-word/URL underscores
         line = re.sub(r"\s{2,}", " ", line)
         cleaned.append(line)
     return cleaned
@@ -565,8 +566,6 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
 
     for line in lines:
         if not line:
-            if not in_closing:
-                doc.add_paragraph()
             continue
 
         kind = _cover_letter_line_kind(line)
@@ -614,7 +613,7 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
             else:
                 # Body paragraph — render inline bold from **...**
                 p = doc.add_paragraph()
-                _set_para_spacing(p, before=0, after=6)
+                _set_para_spacing(p, before=0, after=10)
                 _add_inline_runs(p, line, size=10)
 
     return _save_document(doc, path)

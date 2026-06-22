@@ -24,7 +24,8 @@ Rules:
 - Name is on its own line, ALL CAPS.
 - Primary role title is ALL CAPS on the next line, immediately after the rule.
 - Contact info and links follow below the title lines. All header lines are centered.
-- For design roles only, add this line last: DESIGNER PORTFOLIO LINK  Louielyn Mata - Portfolio (NDA Only) - 2025.pdf
+- For design roles only, add this line last: DESIGNER PORTFOLIO LINK  https://drive.google.com/drive/folders/1FKDM7u_vB0jY8S5zofdT4a4ziH7MD-g4?usp=sharing
+  CRITICAL: Copy this URL character-for-character — including the underscore in "1FKDM7u_vB0jY8S5". Do NOT alter, shorten, or reformat the URL in any way.
 - After the last header line (links or portfolio), leave one blank line before the body begins.
 - Do NOT add another horizontal rule between the header and PROFESSIONAL SUMMARY.
 
@@ -287,6 +288,8 @@ Rules:
 - Preserve warmth and confidence without sounding needy.
 - Sign-off is always "Cheers and all the best!" — this is my signature sign-off.
 - Closing is always "Sincerely and thankfully," followed by my name bold, email, and LinkedIn.
+- Cover letter must fit on ONE PAGE. Keep every paragraph to 3–5 sentences maximum.
+- Do NOT add blank lines between body paragraphs. Write them one after another — the document renderer handles spacing.
 
 ---
 
