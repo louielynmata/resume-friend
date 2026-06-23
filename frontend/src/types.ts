@@ -78,5 +78,5 @@ export interface ModelFilesStatus {
   dev_resume: boolean;
   instructions_prompt: boolean;
   writing_examples: boolean;
-  sait_transcript: boolean;
+  school_transcript: boolean;
 }

@@ -65,4 +65,4 @@ class ModelFilesResponse(BaseModel):
     dev_resume: bool
     instructions_prompt: bool
     writing_examples: bool
-    sait_transcript: bool
+    school_transcript: bool

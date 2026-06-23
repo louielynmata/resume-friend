@@ -1,8 +1,20 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .routers import extract_job_meta, generate, scrape, model_files, notion, open_folder
+
+logger = logging.getLogger("uvicorn.error")
+
+_MODEL_FILES = [
+    "design_resume.md",
+    "dev_resume.md",
+    "instructions_prompt.md",
+    "writing_examples.md",
+    "school_transcript.md",
+]
 
 app = FastAPI(
     title="Resume Friend API",
@@ -29,6 +41,26 @@ app.include_router(extract_job_meta.router)
 app.include_router(model_files.router)
 app.include_router(notion.router)
 app.include_router(open_folder.router)
+
+
+@app.on_event("startup")
+async def _check_model_files() -> None:
+    base = settings.model_files_path
+    if not base.exists() or not base.is_dir():
+        logger.warning(
+            "model_files/ directory not found at %s. "
+            "Copy model_files_example/ to model_files/ and fill in your content.",
+            base,
+        )
+        return
+    for filename in _MODEL_FILES:
+        p = base / filename
+        if not p.exists():
+            logger.warning("model_files/%s is missing", filename)
+        elif p.read_text(encoding="utf-8").strip().startswith("[PLACEHOLDER"):
+            logger.warning("model_files/%s still contains placeholder content", filename)
+        else:
+            logger.info("model_files/%s OK", filename)
 
 
 @app.get("/api/health")

@@ -2,7 +2,7 @@
 
 A local AI tool that generates tailored resumes and cover letters for job applications. Paste a job description (or drop a URL), pick an AI provider, and get a `.docx` + `.pdf` output named and organized automatically — plus a Notion row logged for tracking.
 
-Inspired by [Fernando Horta's AI Resume Generator](https://github.com/fzhorta).
+Inspired by and built in discussion with [Fernando C. B. Horta](https://github.com/fernandocbhorta). A link to his work will be posted once it is published.
 
 ---
 
@@ -128,9 +128,19 @@ NOTION_TOKEN=                # for Notion tracking
 NOTION_DATABASE_ID=          # see Notion Setup section below
 ```
 
-### 2. Fill in your model files
+### 2. Set up your model files
 
-Open each file in `model_files/` and replace the placeholder content:
+The `model_files/` directory is gitignored and must be created manually. The easiest way is to copy the provided example templates:
+
+```powershell
+# Windows
+xcopy model_files_example model_files /E /I
+
+# macOS / Linux
+cp -r model_files_example model_files
+```
+
+Then open each file and replace the placeholder content with your own:
 
 | File                     | What to put in it                                   |
 | ------------------------ | --------------------------------------------------- |
@@ -232,3 +242,13 @@ The app is local-only with no authentication. The architecture is ready for it w
 
 - **Backend**: add `Depends(get_current_user)` to any router — zero restructuring
 - **Frontend**: wrap `<App />` with `<AuthProvider>` + a protected route in `main.tsx`
+
+---
+
+## Credits
+
+Inspired by and developed in discussion with [Fernando C. B. Horta](https://github.com/fernandocbhorta). Fernando's work on AI-assisted resume generation was the direct inspiration for this project. A link to his work will be added once it is published.
+
+---
+
+Built by [Louielyn Mata](https://github.com/louielynmata) · Local only · no data leaves your machine

@@ -11,7 +11,16 @@ import type {
   GenerationStageId,
   JobMeta,
   JobType,
+  ModelFilesStatus,
 } from "./types";
+
+const MODEL_FILE_LABELS: Record<keyof ModelFilesStatus, string> = {
+  design_resume: "design_resume.md",
+  dev_resume: "dev_resume.md",
+  instructions_prompt: "instructions_prompt.md",
+  writing_examples: "writing_examples.md",
+  school_transcript: "school_transcript.md",
+};
 
 const STEPS = ["Job Description", "AI & Job Type", "Details", "Result"];
 
@@ -100,6 +109,9 @@ export default function App() {
   );
   const [result, setResult] = useState<GenerateResult | null>(null);
   const generationIntervalRef = useRef<number | null>(null);
+  const [modelFilesStatus, setModelFilesStatus] = useState<ModelFilesStatus | null>(null);
+  const [modelFilesChecked, setModelFilesChecked] = useState(false);
+  const [modelFilesBannerDismissed, setModelFilesBannerDismissed] = useState(false);
 
   function stopGenerationTicker() {
     if (generationIntervalRef.current !== null) {
@@ -167,6 +179,13 @@ export default function App() {
   }
 
   useEffect(() => () => stopGenerationTicker(), []);
+
+  useEffect(() => {
+    api.modelFiles()
+      .then(setModelFilesStatus)
+      .catch(() => setModelFilesStatus(null))
+      .finally(() => setModelFilesChecked(true));
+  }, []);
 
   function handleMetaChange(next: JobMeta) {
     setMetaTouched((currentTouched) => {
@@ -304,6 +323,17 @@ export default function App() {
     stopGenerationTicker();
   }
 
+  const missingFiles = modelFilesStatus
+    ? (Object.keys(modelFilesStatus) as Array<keyof ModelFilesStatus>)
+        .filter((key) => !modelFilesStatus[key])
+        .map((key) => MODEL_FILE_LABELS[key])
+    : null;
+
+  const showSetupBanner =
+    modelFilesChecked &&
+    !modelFilesBannerDismissed &&
+    (modelFilesStatus === null || (missingFiles && missingFiles.length > 0));
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
@@ -320,6 +350,36 @@ export default function App() {
           </span>
         </div>
       </header>
+
+      {/* Model files setup banner */}
+      {showSetupBanner && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-3">
+          <div className="max-w-2xl mx-auto flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Setup required — model files not found</p>
+              {modelFilesStatus === null ? (
+                <p className="text-xs text-amber-700 mt-0.5">
+                  The <code className="font-mono">model_files/</code> directory is missing. Copy{" "}
+                  <code className="font-mono">model_files_example/</code> to{" "}
+                  <code className="font-mono">model_files/</code> and fill in your resume and writing samples.
+                </p>
+              ) : (
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Missing: <span className="font-mono">{missingFiles!.join(", ")}</span>. Copy the matching files
+                  from <code className="font-mono">model_files_example/</code> and fill in your content.
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => setModelFilesBannerDismissed(true)}
+              className="text-amber-600 hover:text-amber-900 text-lg leading-none shrink-0 mt-0.5"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Step indicator */}
       <div className="bg-white border-b border-slate-200 px-6 py-3">
