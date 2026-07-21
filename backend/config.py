@@ -24,14 +24,25 @@ class Settings(BaseSettings):
     claude_model: str = "claude-sonnet-5-6"
     openai_model: str = "gpt-5o"
 
+    # Independent QA reviewer/fixer
+    qa_enabled: bool = True
+    qa_provider: str = "same"
+    qa_max_repairs: int = 2
+    qa_language: str = "en-CA"
+    qa_fail_open: bool = False
+    qa_visual_enabled: bool = True
+    qa_resume_max_pages: int = 2
+    qa_cover_letter_max_pages: int = 1
+
     # Notion
     notion_token: str = ""
     notion_database_id: str = ""
 
     # Paths (relative to project root)
-    app_model_files_dir: str = "./models_app"
+    app_model_files_dir: str = "./prompts"
     model_files_dir: str = "./models_personal"
     output_dir: str = "./outputs"
+    qa_temp_dir: str = "./tmp/pdfs"
 
     # App
     backend_port: int = 8000
@@ -50,6 +61,11 @@ class Settings(BaseSettings):
     @property
     def output_path(self) -> Path:
         p = Path(self.output_dir)
+        return p if p.is_absolute() else _ROOT / p
+
+    @property
+    def qa_temp_path(self) -> Path:
+        p = Path(self.qa_temp_dir)
         return p if p.is_absolute() else _ROOT / p
 
 

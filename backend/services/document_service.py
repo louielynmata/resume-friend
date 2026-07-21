@@ -8,6 +8,8 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
+from .document_normalization import normalize_resume_bullets
+
 
 async def build_documents(
     ai_response: str,
@@ -72,7 +74,8 @@ def _is_locked_word_document(path: Path) -> bool:
 # ── Text normalisation ─────────────────────────────────────────────────────────
 
 def _normalize_document_text(content: str) -> list[str]:
-    normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized, _ = normalize_resume_bullets(content)
+    normalized = normalized.strip()
     # Replace em dash and en dash used as sentence separators with a plain hyphen.
     # En dash between digits is kept (date ranges like 2024-2026 are fine as hyphens).
     normalized = re.sub(r"\s*—\s*", " - ", normalized)         # em dash (U+2014)
@@ -97,11 +100,7 @@ def _normalize_document_text(content: str) -> list[str]:
             continue
         if _META_COMMENTARY_PAT.search(line):  # drop AI self-commentary embedded in body text
             continue
-        # Convert other bullet styles → ● (only when followed by a space, so --- is safe)
-        line = re.sub(r"^\s{0,3}[+]\s", "● ", line)
-        line = re.sub(r"^\s{0,3}-\s(?!-)", "● ", line)   # - space, not --
-        line = re.sub(r"^\s{0,3}\*\s(?!\*)", "● ", line)  # * space, not **
-        line = re.sub(r"^\s{0,3}\d+\.\s", "● ", line)
+        # Bullet markers were canonicalized before line-level rendering.
         # Unwrap markdown links
         line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", line)
         # Strip markdown formatting underscores/backticks/tildes — but KEEP asterisks for inline bold.

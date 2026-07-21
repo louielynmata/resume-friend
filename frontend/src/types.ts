@@ -4,7 +4,9 @@ export type GenerationStageId =
   | "validate_request"
   | "load_model_files"
   | "call_ai_provider"
+  | "qa_review"
   | "build_documents"
+  | "artifact_validation"
   | "log_notion"
   | "complete";
 export type GenerationStageStatus = "pending" | "active" | "done" | "failed";
@@ -70,6 +72,11 @@ export interface GenerateResult {
   notion_page_url?: string;
   notion_error?: string;
   analysis?: string;
+  qa_status: "passed" | "passed_with_warnings" | "needs_review" | "disabled";
+  qa_iterations: number;
+  qa_report_path?: string;
+  qa_issues: string[];
+  qa_changes: string[];
   message: string;
 }
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import date
 
@@ -49,6 +49,11 @@ class GenerateResponse(BaseModel):
     notion_page_url: Optional[str] = None
     notion_error: Optional[str] = None
     analysis: Optional[str] = None
+    qa_status: str
+    qa_iterations: int = 0
+    qa_report_path: Optional[str] = None
+    qa_issues: list[str] = Field(default_factory=list)
+    qa_changes: list[str] = Field(default_factory=list)
     message: str
 
 

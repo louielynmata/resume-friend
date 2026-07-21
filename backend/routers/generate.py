@@ -1,13 +1,19 @@
 import re
 from datetime import date
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
 from ..config import settings
 from ..schemas import GenerateRequest, GenerateResponse
 from ..services.ai_service import generate_content
-from ..services.document_service import build_documents
 from ..services.notion_service import log_application
+from ..services.qa_pipeline import (
+    QAPipelineReviewError,
+    QAPipelineValidationError,
+    run_qa_pipeline,
+)
+from ..services.qa_service import parse_document_draft
 
 router = APIRouter(prefix="/api/generate", tags=["generate"])
 
@@ -39,15 +45,27 @@ def _http_error(
     )
 
 
-def _extract_analysis(text: str) -> str | None:
-    match = re.search(r"<ANALYSIS>(.*?)</ANALYSIS>", text, re.DOTALL)
-    return match.group(1).strip() if match else None
-
-
 def _slugify(text: str) -> str:
     words = text.split()
     cased = "".join(w[0].upper() + w[1:] if w else "" for w in words)
     return re.sub(r"[^a-zA-Z0-9]", "", cased)
+
+
+def _create_run_output_dir(base_path: Path) -> Path:
+    """Create a run-specific folder without overwriting prior same-day output."""
+    base_path.parent.mkdir(parents=True, exist_ok=True)
+    for index in range(1, 1000):
+        candidate = (
+            base_path
+            if index == 1
+            else base_path.with_name(f"{base_path.name}_{index}")
+        )
+        try:
+            candidate.mkdir(exist_ok=False)
+        except FileExistsError:
+            continue
+        return candidate
+    raise OSError(f"Could not create a unique output folder for {base_path.name}.")
 
 
 def _read_model(filename: str) -> str:
@@ -183,7 +201,7 @@ async def generate(req: GenerateRequest):
             message="A required model or prompt file is missing.",
             detail=str(exc),
             hint=(
-                "Restore models_app/system_prompt.md and add the required files under "
+                "Restore prompts/system_prompt.md and add the required files under "
                 "models_personal/ before trying again."
             ),
         ) from exc
@@ -196,7 +214,7 @@ async def generate(req: GenerateRequest):
             detail=str(exc),
             hint=(
                 "Fill in each personal model file and keep the documented placeholders "
-                "in models_app/system_prompt.md."
+                "in prompts/system_prompt.md."
             ),
         ) from exc
 
@@ -231,7 +249,7 @@ async def generate(req: GenerateRequest):
             detail=str(exc),
             hint=(
                 "Restore the placeholders documented in "
-                "models_app/system_prompt.md and try again."
+                "prompts/system_prompt.md and try again."
             ),
         ) from exc
 
@@ -288,15 +306,13 @@ Target Company: {req.company}"""
             retryable=retryable,
         ) from exc
 
-    analysis_text = _extract_analysis(ai_response)
-
     position_slug = _slugify(req.position)
     company_slug = _slugify(req.company)
     today_str = date.today().strftime("%Y-%m-%d")
     folder_name = f"{company_slug}_{position_slug}_{today_str}"
 
-    output_dir = settings.output_path / folder_name
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = _create_run_output_dir(settings.output_path / folder_name)
+    folder_name = output_dir.name
 
     jd_path = output_dir / "job_description.txt"
     jd_path.write_text(
@@ -304,29 +320,89 @@ Target Company: {req.company}"""
         encoding="utf-8",
     )
 
-    if analysis_text:
-        analysis_path = output_dir / "analysis.md"
-        analysis_path.write_text(analysis_text, encoding="utf-8")
-
     try:
-        docs = await build_documents(
-            ai_response=ai_response,
-            owner_name=settings.owner_name,
-            position_slug=position_slug,
-            output_dir=output_dir,
-        )
+        draft = parse_document_draft(ai_response)
     except ValueError as exc:
         raise _http_error(
             422,
-            stage="build_documents",
+            stage="qa_review",
             code="DOCUMENT_PARSE_ERROR",
-            message="The AI response could not be converted into documents.",
+            message="The AI response could not be parsed for QA.",
             detail=str(exc),
             hint=(
-                "Try regenerating or switch providers. The model likely missed "
+                "Try regenerating or switch providers. The writer likely missed "
                 "the required <RESUME> or <COVER_LETTER> tags."
             ),
             retryable=True,
+        ) from exc
+
+    try:
+        qa_result = await run_qa_pipeline(
+            selected_provider=req.ai_provider,
+            draft=draft,
+            owner_name=settings.owner_name,
+            source_resume=resume_content,
+            instructions=instructions,
+            writing_examples=writing_examples,
+            transcript=transcript,
+            job_description=req.job_description,
+            company_context=req.company_context or "",
+            position=req.position,
+            company=req.company,
+            position_slug=position_slug,
+            output_dir=output_dir,
+        )
+        docs = qa_result.docs
+        draft = qa_result.draft
+        qa_report = qa_result.report
+        qa_report_path = qa_result.report_path
+    except QAPipelineValidationError as exc:
+        raise _http_error(
+            422,
+            stage=exc.stage,
+            code="QA_VALIDATION_FAILED",
+            message=(
+                "The generated files did not pass QA."
+                if exc.stage == "artifact_validation"
+                else "The generated content did not pass QA."
+            ),
+            detail=f"{exc} QA report: {exc.report_path}",
+            hint=(
+                "Open qa_report.json and qa_draft.xml in the output folder. The final "
+                "reviewed text was retained, but the application was not logged to Notion."
+            ),
+            retryable=True,
+        ) from exc
+    except QAPipelineReviewError as exc:
+        qa_provider = (
+            req.ai_provider if settings.qa_provider == "same" else settings.qa_provider
+        )
+        status_code, code, message, detail, retryable = _classify_ai_error(
+            qa_provider, exc
+        )
+        raise _http_error(
+            status_code,
+            stage="qa_review",
+            code=f"QA_{code}",
+            message=f"QA review failed: {message}",
+            detail=detail,
+            hint=(
+                "Check QA_PROVIDER and the selected provider configuration. For "
+                "local QA, make sure Ollama is running and the model is installed."
+            ),
+            retryable=retryable,
+        ) from exc
+    except ValueError as exc:
+        raise _http_error(
+            422,
+            stage="qa_review",
+            code="QA_CONFIG_ERROR",
+            message="The QA reviewer is configured incorrectly.",
+            detail=str(exc),
+            hint=(
+                "QA_PROVIDER must be same, claude, openai, or ollama, and all "
+                "QA prompt files must exist under prompts/."
+            ),
         ) from exc
     except Exception as exc:
         raise _http_error(
@@ -337,9 +413,18 @@ Target Company: {req.company}"""
             detail=str(exc),
         ) from exc
 
+    analysis_text = draft.analysis or None
+    if analysis_text:
+        analysis_path = output_dir / "analysis.md"
+        analysis_path.write_text(analysis_text, encoding="utf-8")
+
     notion_url = None
     notion_error = None
-    if settings.notion_token and settings.notion_database_id:
+    if (
+        qa_report.status != "needs_review"
+        and settings.notion_token
+        and settings.notion_database_id
+    ):
         try:
             notion_url = await log_application(
                 position=req.position,
@@ -358,6 +443,8 @@ Target Company: {req.company}"""
             )
         except Exception as exc:
             notion_error = str(exc)
+    elif qa_report.status == "needs_review":
+        notion_error = "Not logged because generated files still need manual QA review."
 
     return GenerateResponse(
         output_folder=str(output_dir.resolve()),
@@ -368,5 +455,14 @@ Target Company: {req.company}"""
         notion_page_url=notion_url,
         notion_error=notion_error,
         analysis=analysis_text,
-        message="Generated successfully",
+        qa_status=qa_report.status,
+        qa_iterations=qa_report.iterations,
+        qa_report_path=str(qa_report_path.resolve()),
+        qa_issues=[issue.message for issue in qa_report.issues],
+        qa_changes=qa_report.changes_made,
+        message=(
+            "Generated with unresolved QA issues; manual review is required"
+            if qa_report.status == "needs_review"
+            else "Generated and QA-verified successfully"
+        ),
     )

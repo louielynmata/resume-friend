@@ -63,10 +63,20 @@ const GENERATION_STAGES: Array<
     description: "Send the prompt to Claude, OpenAI, or Ollama.",
   },
   {
+    id: "qa_review",
+    label: "Review and Fix",
+    description: "Run an independent grammar, truthfulness, and format review.",
+  },
+  {
     id: "build_documents",
     label: "Build Documents",
     description:
       "Parse the AI output and create the resume and cover letter files.",
+  },
+  {
+    id: "artifact_validation",
+    label: "Validate Files",
+    description: "Inspect the rendered DOCX/PDF files and repair blocking issues.",
   },
   {
     id: "log_notion",

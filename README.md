@@ -16,11 +16,12 @@ Inspired by and built in discussion with [Fernando C. B. Horta](https://github.c
      ↓
    AI reads your resume + instructions + writing style
      ↓
-5. Outputs saved to:
+5. Independent QA reviewer corrects grammar and formatting
+6. Validated outputs saved to:
    outputs/{Company}_{Position}_{Date}/
      {Name}_Resume_{Position}.docx + .pdf
      {Name}_CoverLetter_{Position}.docx + .pdf
-6. Job logged to Notion database automatically
+7. Job logged to Notion database automatically after QA passes
 ```
 
 **AI rules applied on every generation:**
@@ -72,6 +73,9 @@ resume-friend/
 │   ├── services/
 │   │   ├── ai_service.py         ← unified Claude / OpenAI / Ollama interface
 │   │   ├── document_service.py   ← .docx builder + docx→pdf conversion
+│   │   ├── qa_service.py         ← deterministic checks + AI reviewer/fixer
+│   │   ├── qa_pipeline.py        ← bounded review, render, inspect, repair loop
+│   │   ├── artifact_qa_service.py ← DOCX/PDF and visual validation
 │   │   ├── notion_service.py     ← create Notion database rows
 │   │   └── job_scraper.py        ← extract plain text from a job URL
 │   └── requirements.txt
@@ -87,8 +91,10 @@ resume-friend/
 │           ├── StepJobMeta.tsx   ← Step 3: company, position, salary…
 │           └── StepResult.tsx    ← Step 4: output paths + Notion link
 │
-├── models_app/                   ← public application prompt templates
-│   └── system_prompt.md          ← identity-neutral system prompt template
+├── prompts/                      ← public application prompt templates
+│   ├── system_prompt.md          ← identity-neutral writer prompt
+│   ├── qa_prompt.md              ← grammar/format reviewer and fixer prompt
+│   └── visual_qa_prompt.md       ← rendered PDF inspection prompt
 │
 ├── models_personal/              ← your personal files (gitignored — fill these in)
 │   ├── design_resume.md          ← your Design/UX resume
@@ -129,11 +135,13 @@ copy .env.example .env
 Open `.env` and fill in the values you need:
 
 ```env
-OWNER_NAME=YourName          # used in output filenames
-APP_MODEL_FILES_DIR=./models_app
+OWNER_NAME="Your Name"      # exact display name used in documents and filenames
+APP_MODEL_FILES_DIR=./prompts
 MODEL_FILES_DIR=./models_personal
 ANTHROPIC_API_KEY=           # for Claude
 OPENAI_API_KEY=              # for ChatGPT
+QA_PROVIDER=same             # same writer provider, or claude/openai/ollama
+QA_VISUAL_ENABLED=true       # inspect rendered PDFs when available
 NOTION_TOKEN=                # for Notion tracking
 NOTION_DATABASE_ID=          # see Notion Setup section below
 ```
@@ -160,10 +168,26 @@ Then open each file and replace the placeholder content with your own:
 | `writing_examples.md`    | 2-3 of your real cover letters for style matching   |
 | `school_transcript.md`   | Program name, courses, graduation, achievements     |
 
-Keep `models_app/system_prompt.md` identity-neutral because it is committed as
+Keep `prompts/system_prompt.md` identity-neutral because it is committed as
 part of the public application. Put applicant names, contact details, education
 facts, portfolio links, and personal writing preferences only in
 `models_personal/` or `.env`.
+
+### QA behavior
+
+QA is enabled by default. It always performs one independent review, then makes
+up to `QA_MAX_REPAIRS` additional corrective retries while validating the
+actual DOCX/PDF artifacts. Each output folder receives `qa_report.json`.
+Notion logging occurs only after blocking QA issues are resolved.
+
+Mechanical invariants such as resume bullet markers, the configured applicant
+name, cover-letter sign-off, and an existing valid ATS score are normalized in
+code before validation. Repeated runs for the same company, position, and date
+use suffixed folders (`_2`, `_3`, and so on) so earlier QA evidence is retained.
+
+Set `QA_PROVIDER=ollama` to keep review local even when another provider writes
+the first draft. Set `QA_VISUAL_ENABLED=false` to skip the extra visual model
+call while retaining grammar, structure, DOCX, and PDF page checks.
 
 ### 3. Install backend dependencies
 

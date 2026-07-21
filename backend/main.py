@@ -15,7 +15,7 @@ _MODEL_FILES = [
     "writing_examples.md",
     "school_transcript.md",
 ]
-_APP_MODEL_FILES = ["system_prompt.md"]
+_APP_MODEL_FILES = ["system_prompt.md", "qa_prompt.md", "visual_qa_prompt.md"]
 
 app = FastAPI(
     title="Resume Friend API",
@@ -50,11 +50,11 @@ async def _check_model_files() -> None:
     for filename in _APP_MODEL_FILES:
         path = app_base / filename
         if not path.exists():
-            logger.warning("models_app/%s is missing", filename)
+            logger.warning("prompts/%s is missing", filename)
         elif not path.read_text(encoding="utf-8").strip():
-            logger.warning("models_app/%s is empty", filename)
+            logger.warning("prompts/%s is empty", filename)
         else:
-            logger.info("models_app/%s OK", filename)
+            logger.info("prompts/%s OK", filename)
 
     base = settings.model_files_path
     if not base.exists() or not base.is_dir():

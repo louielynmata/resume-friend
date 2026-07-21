@@ -318,6 +318,70 @@ export function StepResult({ result, onReset }: Props) {
 
       <div className="space-y-4">
 
+        {/* QA status */}
+        <div className={`border rounded-lg p-4 ${
+          result.qa_status === "passed"
+            ? "bg-green-50 border-green-200"
+            : result.qa_status === "passed_with_warnings"
+              ? "bg-amber-50 border-amber-200"
+              : result.qa_status === "needs_review"
+                ? "bg-red-50 border-red-200"
+                : "bg-slate-50 border-slate-200"
+        }`}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Quality Assurance</p>
+              <p className="text-sm font-semibold text-slate-800 mt-1">
+                {result.qa_status === "passed"
+                  ? "Passed"
+                  : result.qa_status === "passed_with_warnings"
+                    ? "Passed with warnings"
+                    : result.qa_status === "disabled"
+                      ? "Disabled"
+                      : "Needs review"}
+              </p>
+              <p className="text-xs text-slate-600 mt-1">
+                {result.qa_iterations} reviewer repair {result.qa_iterations === 1 ? "pass" : "passes"} completed.
+              </p>
+            </div>
+            <span className="text-xs font-mono text-slate-500">
+              {result.qa_status === "passed" ? "QA OK" : "QA"}
+            </span>
+          </div>
+
+          {result.qa_changes.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-semibold text-slate-600 mb-1">Corrections made</p>
+              <ul className="list-disc pl-5 space-y-1">
+                {result.qa_changes.map((change, index) => (
+                  <li key={index} className="text-xs text-slate-600">{change}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {result.qa_issues.length > 0 && (
+            <div className="mt-3">
+              <p className={`text-xs font-semibold mb-1 ${
+                result.qa_status === "needs_review" ? "text-red-700" : "text-amber-700"
+              }`}>Issues</p>
+              <ul className="list-disc pl-5 space-y-1">
+                {result.qa_issues.map((issue, index) => (
+                  <li key={index} className={`text-xs ${
+                    result.qa_status === "needs_review" ? "text-red-700" : "text-amber-700"
+                  }`}>{issue}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {result.qa_report_path && (
+            <p className="text-xs font-mono text-slate-500 break-all mt-3">
+              Report: {result.qa_report_path}
+            </p>
+          )}
+        </div>
+
         {/* Saved to */}
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Saved to</p>
