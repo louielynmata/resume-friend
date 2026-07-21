@@ -1,5 +1,3 @@
-(writing_examples.md)
-
 [PLACEHOLDER — Replace this with examples of your writing style]
 
 Paste 2-3 examples of your actual cover letters, professional emails, or written summaries.

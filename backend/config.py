@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     )
 
     # Personal
-    owner_name: str = "LouielynMata"
+    owner_name: str = "Applicant"
     owner_email: str = ""
 
     # AI Providers
@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     notion_database_id: str = ""
 
     # Paths (relative to project root)
+    app_model_files_dir: str = "./models_app"
     model_files_dir: str = "./models_personal"
     output_dir: str = "./outputs"
 
@@ -39,6 +40,11 @@ class Settings(BaseSettings):
     @property
     def model_files_path(self) -> Path:
         p = Path(self.model_files_dir)
+        return p if p.is_absolute() else _ROOT / p
+
+    @property
+    def app_model_files_path(self) -> Path:
+        p = Path(self.app_model_files_dir)
         return p if p.is_absolute() else _ROOT / p
 
     @property

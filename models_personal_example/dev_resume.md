@@ -1,6 +1,4 @@
-(dev_resume.md)
-
-([PLACEHOLDER — Replace this entire file with your Developer resume]
+[PLACEHOLDER — Replace this entire file with your Developer resume]
 
 Paste your full Developer/Engineering resume here as plain text.
 
@@ -20,8 +18,8 @@ Do NOT add skills or experience you don't actually have.
 
 Example format:
 ──────────────────────────────
-LouielynMata
-louielynmata@gmail.com | GitHub: github.com/louielynmata | LinkedIn: linkedin.com/in/louielynmata
+Alex Example
+alex@example.com | GitHub: github.com/alex-example | LinkedIn: linkedin.com/in/alex-example
 
 PROFESSIONAL SUMMARY
 Software developer with X years of experience in...
@@ -38,11 +36,10 @@ Frameworks: React, FastAPI, Node.js
 Tools: Git, Docker, VS Code
 
 EDUCATION
-Diploma in Information Technology | SAIT | 2020
+Diploma in Information Technology | Example Polytechnic | 2020
 
 PROJECTS
 Resume Friend | Python, FastAPI, React
 
 - A local tool that generates tailored resumes using AI
   ──────────────────────────────
-  )

@@ -1,5 +1,3 @@
-(instructions_prompt.md)
-
 Create a tailored 1-page resume and a tailored cover letter for the target role.
 
 The output must stay truthful to the provided source resume. Do not invent experience, tools, responsibilities, metrics, awards, or education details.
@@ -12,20 +10,20 @@ HEADER BLOCK FORMATTING:
 
 Render the header in this exact sequence:
 
-  LOUIELYN MATA
+  YOUR FULL NAME
   ────────────────────────────────────────────────────────────────
   [PRIMARY ROLE TITLE IN ALL CAPS AND BOLD — line 2]
   [Optional secondary tagline — regular case, line 3 only if it adds positioning value]
-  louielynmata@gmail.com | +1 825 558 0107  Calgary, AB
-  LinkedIn: http://www.linkedin.com/in/louielynmata/  Github: http://github.com/louielynmata
+  your.email@example.com | +1 555 010 0000  City, Region
+  LinkedIn: https://www.linkedin.com/in/your-handle  Github: https://github.com/your-handle
 
 Rules:
 - The horizontal rule (---) goes DIRECTLY UNDER THE NAME LINE — not after the contact block.
 - Name is on its own line, ALL CAPS.
 - Primary role title is ALL CAPS on the next line, immediately after the rule.
 - Contact info and links follow below the title lines. All header lines are centered.
-- For design roles only, add this line last: DESIGNER PORTFOLIO LINK  https://drive.google.com/drive/folders/1FKDM7u_vB0jY8S5zofdT4a4ziH7MD-g4?usp=sharing
-  CRITICAL: Copy this URL character-for-character — including the underscore in "1FKDM7u_vB0jY8S5". Do NOT alter, shorten, or reformat the URL in any way.
+- For design roles only, add this line last: DESIGNER PORTFOLIO LINK  https://example.com/portfolio
+  CRITICAL: Copy the supplied portfolio URL character-for-character. Do not alter, shorten, or reformat it.
 - After the last header line (links or portfolio), leave one blank line before the body begins.
 - Do NOT add another horizontal rule between the header and PROFESSIONAL SUMMARY.
 
@@ -274,9 +272,9 @@ Structure:
 
 
   Sincerely and thankfully,
-  **Louielyn Mata**
-  louielynmata@gmail.com
-  http://www.linkedin.com/in/louielynmata
+  **Your Full Name**
+  your.email@example.com
+  https://www.linkedin.com/in/your-handle
 
 Rules:
 - "Cover Letter" is the document heading — bold, left-aligned.

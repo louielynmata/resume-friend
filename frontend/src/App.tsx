@@ -359,14 +359,14 @@ export default function App() {
               <p className="text-sm font-semibold text-amber-800">Setup required — model files not found</p>
               {modelFilesStatus === null ? (
                 <p className="text-xs text-amber-700 mt-0.5">
-                  The <code className="font-mono">model_files/</code> directory is missing. Copy{" "}
-                  <code className="font-mono">model_files_example/</code> to{" "}
-                  <code className="font-mono">model_files/</code> and fill in your resume and writing samples.
+                  The <code className="font-mono">models_personal/</code> directory is missing. Copy{" "}
+                  <code className="font-mono">models_personal_example/</code> to{" "}
+                  <code className="font-mono">models_personal/</code> and fill in your resume and writing samples.
                 </p>
               ) : (
                 <p className="text-xs text-amber-700 mt-0.5">
                   Missing: <span className="font-mono">{missingFiles!.join(", ")}</span>. Copy the matching files
-                  from <code className="font-mono">model_files_example/</code> and fill in your content.
+                  from <code className="font-mono">models_personal_example/</code> and fill in your content.
                 </p>
               )}
             </div>
@@ -465,9 +465,9 @@ export default function App() {
       </main>
 
       <footer className="text-center text-xs text-slate-400 py-4">
-        Resume Friend — local only · no data leaves your machine
+        Resume Friend — use Ollama for fully local generation
         <br />
-        Louielyn Mata © Copyright {new Date().getFullYear()}
+        Resume Friend contributors © {new Date().getFullYear()}
       </footer>
     </div>
   );

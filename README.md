@@ -29,6 +29,11 @@ Inspired by and built in discussion with [Fernando C. B. Horta](https://github.c
 - ATS-optimized — mirrors keywords from the job description where they match your background
 - Humanized — matches your writing style from the examples you provide
 
+> **Privacy:** Personal model files stay outside version control under the gitignored
+> `models_personal/` directory. During generation, their contents are sent to the
+> AI provider you select. Choose Ollama when you need the generation request to
+> remain on your machine.
+
 ---
 
 ## Tech Stack
@@ -82,12 +87,15 @@ resume-friend/
 │           ├── StepJobMeta.tsx   ← Step 3: company, position, salary…
 │           └── StepResult.tsx    ← Step 4: output paths + Notion link
 │
-├── model_files/                  ← your personal files (gitignored — fill these in)
+├── models_app/                   ← public application prompt templates
+│   └── system_prompt.md          ← identity-neutral system prompt template
+│
+├── models_personal/              ← your personal files (gitignored — fill these in)
 │   ├── design_resume.md          ← your Design/UX resume
 │   ├── dev_resume.md             ← your Developer resume
 │   ├── instructions_prompt.md    ← generation rules (length, format, tone)
 │   ├── writing_examples.md       ← 2-3 writing samples for style matching
-│   └── school_transcript.md     ← education details (SAIT, courses, etc.)
+│   └── school_transcript.md     ← education details, courses, and achievements
 │
 └── outputs/                      ← generated documents saved here (gitignored)
     └── {Company}_{Position}_{Date}/
@@ -122,6 +130,8 @@ Open `.env` and fill in the values you need:
 
 ```env
 OWNER_NAME=YourName          # used in output filenames
+APP_MODEL_FILES_DIR=./models_app
+MODEL_FILES_DIR=./models_personal
 ANTHROPIC_API_KEY=           # for Claude
 OPENAI_API_KEY=              # for ChatGPT
 NOTION_TOKEN=                # for Notion tracking
@@ -130,14 +140,14 @@ NOTION_DATABASE_ID=          # see Notion Setup section below
 
 ### 2. Set up your model files
 
-The `model_files/` directory is gitignored and must be created manually. The easiest way is to copy the provided example templates:
+The `models_personal/` directory is gitignored and must be created manually. The easiest way is to copy the provided identity-neutral example templates:
 
 ```powershell
 # Windows
-xcopy model_files_example model_files /E /I
+xcopy models_personal_example models_personal /E /I
 
 # macOS / Linux
-cp -r model_files_example model_files
+cp -r models_personal_example models_personal
 ```
 
 Then open each file and replace the placeholder content with your own:
@@ -149,6 +159,11 @@ Then open each file and replace the placeholder content with your own:
 | `instructions_prompt.md` | Rules for the AI: length, format, what to emphasize |
 | `writing_examples.md`    | 2-3 of your real cover letters for style matching   |
 | `school_transcript.md`   | Program name, courses, graduation, achievements     |
+
+Keep `models_app/system_prompt.md` identity-neutral because it is committed as
+part of the public application. Put applicant names, contact details, education
+facts, portfolio links, and personal writing preferences only in
+`models_personal/` or `.env`.
 
 ### 3. Install backend dependencies
 
