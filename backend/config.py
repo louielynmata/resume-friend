@@ -21,15 +21,15 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4:e4b"
     ollama_think: bool = True
-    claude_model: str = "claude-sonnet-4-6"
-    openai_model: str = "gpt-4o"
+    claude_model: str = "claude-sonnet-5-6"
+    openai_model: str = "gpt-5o"
 
     # Notion
     notion_token: str = ""
     notion_database_id: str = ""
 
     # Paths (relative to project root)
-    model_files_dir: str = "./model_files"
+    model_files_dir: str = "./models_personal"
     output_dir: str = "./outputs"
 
     # App

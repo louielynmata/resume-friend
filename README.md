@@ -199,21 +199,21 @@ To have job applications logged automatically:
 1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations) → **New Integration** → copy the token into `NOTION_TOKEN`
 2. Create a new full-page **Database** in Notion with these **exact** property names and types:
 
-| Property name      | Type                                            | Notes                              |
-| ------------------ | ----------------------------------------------- | ---------------------------------- |
-| Title              | Title                                           | The default Notion title column — keep the name `Title` |
-| Company            | Text                                            |                                    |
-| Position           | Text                                            |                                    |
-| Status             | Select                                          | Add option: `Applied`              |
-| Location           | Text                                            | Optional                           |
-| Sent Resume        | Checkbox                                        |                                    |
-| AI Resume          | Checkbox                                        |                                    |
-| ATS Use            | Checkbox                                        |                                    |
-| Folder Name        | Text                                            |                                    |
-| Salary (Annual)    | Number                                          | Optional                           |
-| Salary (By Hour)   | Number                                          | Optional                           |
-| Date of Submission | Date                                            |                                    |
-| Contact            | Email                                           | Optional                           |
+| Property name      | Type     | Notes                                                   |
+| ------------------ | -------- | ------------------------------------------------------- |
+| Title              | Title    | The default Notion title column — keep the name `Title` |
+| Company            | Text     |                                                         |
+| Position           | Text     |                                                         |
+| Status             | Select   | Add option: `Applied`                                   |
+| Location           | Text     | Optional                                                |
+| Sent Resume        | Checkbox |                                                         |
+| AI Resume          | Checkbox |                                                         |
+| ATS Use            | Checkbox |                                                         |
+| Folder Name        | Text     |                                                         |
+| Salary (Annual)    | Number   | Optional                                                |
+| Salary (By Hour)   | Number   | Optional                                                |
+| Date of Submission | Date     |                                                         |
+| Contact            | Email    | Optional                                                |
 
 > **Property names are case-sensitive and must match exactly** — including spaces and parentheses. Run `GET /api/notion/test` (with the backend running) to check your database against these requirements and see any mismatches.
 
@@ -226,11 +226,11 @@ To have job applications logged automatically:
 
 ## AI Providers
 
-| Provider | Needs                         | Model                                         |
-| -------- | ----------------------------- | --------------------------------------------- |
-| Claude   | `ANTHROPIC_API_KEY` in `.env` | `claude-sonnet-4-6` (configurable)            |
-| ChatGPT  | `OPENAI_API_KEY` in `.env`    | `gpt-4o` (configurable)                       |
-| Ollama   | Ollama running locally        | `gemma3:4b` (configurable via `OLLAMA_MODEL`) |
+| Provider | Needs                         | Model                                          |
+| -------- | ----------------------------- | ---------------------------------------------- |
+| Claude   | `ANTHROPIC_API_KEY` in `.env` | `claude-sonnet-4-6` (configurable)             |
+| ChatGPT  | `OPENAI_API_KEY` in `.env`    | `gpt-4o` (configurable)                        |
+| Ollama   | Ollama running locally        | `gemma4:e4b` (configurable via `OLLAMA_MODEL`) |
 
 For Ollama: install from [ollama.com](https://ollama.com), then `ollama pull gemma3:4b` (or whichever model you have).
 

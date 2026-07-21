@@ -48,19 +48,19 @@ async def _check_model_files() -> None:
     base = settings.model_files_path
     if not base.exists() or not base.is_dir():
         logger.warning(
-            "model_files/ directory not found at %s. "
-            "Copy model_files_example/ to model_files/ and fill in your content.",
+            "models_personal/ directory not found at %s. "
+            "Copy models_personal_example/ to models_personal/ and fill in your content.",
             base,
         )
         return
     for filename in _MODEL_FILES:
         p = base / filename
         if not p.exists():
-            logger.warning("model_files/%s is missing", filename)
+            logger.warning("models_personal/%s is missing", filename)
         elif p.read_text(encoding="utf-8").strip().startswith("[PLACEHOLDER"):
-            logger.warning("model_files/%s still contains placeholder content", filename)
+            logger.warning("models_personal/%s still contains placeholder content", filename)
         else:
-            logger.info("model_files/%s OK", filename)
+            logger.info("models_personal/%s OK", filename)
 
 
 @app.get("/api/health")

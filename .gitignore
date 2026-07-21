@@ -1,8 +1,8 @@
 # Environment
 .env
 
-# Model files (personal — never commit)
-model_files/
+# Personal models (personal — never commit)
+models_personal/
 
 # Generated output documents
 outputs/

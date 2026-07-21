@@ -165,7 +165,7 @@ OUTPUT FORMAT — output exactly three XML-tagged sections. Nothing outside the 
 NAME: {settings.owner_name}
 ROLE: [Primary Role Title — {role_hint}]
 CONTACT: louielynmata@gmail.com | +1 825 558 0107  Calgary, AB
-LINKS: linkedin.com/in/louielynmata | github.com/louielynmata
+LINKS: louielynmata.com | linkedin.com/in/louielynmata
 PORTFOLIO: {portfolio_line}
 
 PROFESSIONAL SUMMARY

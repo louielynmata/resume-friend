@@ -10,7 +10,7 @@ What to include:
 - Professional summary / objective
 - Work experience (company, title, dates, bullet achievements)
 - Education
-- Design skills (tools: Figma, Adobe XD, Sketch, etc.)
+- Design skills (tools: Figma, Adobe XD, Sketch, etc.)`
 - Portfolio link
 - Certifications / awards
 
