@@ -309,7 +309,8 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
 # ── Hyperlink helpers ──────────────────────────────────────────────────────────
 
 _URL_LINK_PAT = re.compile(
-    r"(https?://[^\s|]+|(?:linkedin|github|gitlab)\.com/[^\s|]+)",
+    r"(https?://[^\s|]+|(?<![@\w])(?:www\.)?"
+    r"(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/[^\s|]*)?)",
     re.IGNORECASE,
 )
 
@@ -319,7 +320,16 @@ _URL_LABELS: dict[str, str] = {}
 
 
 def _ensure_url(text: str) -> str:
-    return text if text.startswith("http") else f"https://{text}"
+    if text.lower().startswith(("http://", "https://")):
+        return text
+    url = f"https://{text}"
+    if re.fullmatch(
+        r"(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}",
+        text,
+        re.IGNORECASE,
+    ):
+        return f"{url}/"
+    return url
 
 
 def _add_hyperlink(

@@ -37,7 +37,7 @@ PROFESSIONAL SUMMARY
 ---
 
 [SECTION HEADER IN ALL CAPS]
-[Narrative content uses ● for every bullet. Compact skill/tool sections use CATEGORY: Label | semicolon-separated values. Use **bold text** for key phrases inside bullets and body text only.]
+[Narrative content uses ● for every bullet. Compact skill/tool sections use CATEGORY: Label | comma-separated values. Use **bold text** for key phrases inside bullets and body text only.]
 
 ---
 
@@ -48,6 +48,7 @@ RESUME FORMAT RULES - non-negotiable:
 - NAME:, ROLE:, CONTACT:, and LINKS: are required exactly as shown because the document builder depends on them. TAGLINE: is optional. PORTFOLIO: is required for design applications.
 - ROLE: must always contain the target position represented by `{{ROLE_HINT}}`. Never omit it during drafting or self-review, even when a similar title appears in the summary or work history.
 - If the applicant instructions include a `RESUME HEADER - REQUIRED EXACT VALUES` block, copy every line from that block exactly. CONTACT: must remain one compact line with values only. Do not add field labels.
+- Preserve supported website display text exactly in LINKS: and PORTFOLIO:. Do not add `www.`, a scheme, or Markdown link syntax merely to make it clickable; the document builder hyperlinks URL-shaped values.
 - ● is the only bullet character. Do not use hyphens, asterisks, or numbers as bullets.
 - Do not use "I," "my," "me," or "myself" in the resume. Use the applicant's name exactly as supplied when a subject is necessary, or drop the subject.
 - Use **bold** only inside bullet text and paragraph body, never on section headers or role/company names.
@@ -76,8 +77,9 @@ SECTION RULES:
 
 SKILL AND TOOL CATEGORY FORMAT:
 - In Core Skills, Design Skills, Technical Skills, Skills, or Toolkit sections, use one or more lines in this exact form:
-  CATEGORY: Category Name | concise item; concise item; concise item
+  CATEGORY: Category Name | concise item, concise item, concise item
 - Do not prefix CATEGORY lines or category names with a bullet.
+- Separate category values with a comma followed by one space. Never use semicolons as skill or tool separators.
 - Use two to four categories. Keep each category self-contained so the builder can place it in the compact reference-style grid.
 
 WORK ENTRY FORMAT - use only these two patterns:

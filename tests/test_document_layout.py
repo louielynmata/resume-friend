@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from docx import Document
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 from backend.services.document_service import (
     _build_cover_letter_docx,
@@ -120,8 +121,8 @@ Designer focused on accessible digital experiences.
 ---
 
 CORE SKILLS
-CATEGORY: Product Design | UX research; prototyping; design systems
-CATEGORY: Collaboration | stakeholder workshops; presentations
+CATEGORY: Product Design | UX research, prototyping, design systems
+CATEGORY: Collaboration | stakeholder workshops, presentations
 """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "resume.docx"
@@ -142,7 +143,31 @@ CATEGORY: Collaboration | stakeholder workshops; presentations
             self.assertEqual(len(document.tables[0].columns), 2)
             self.assertIn("Product Design", document.tables[0].cell(0, 0).text)
             self.assertIn("Collaboration", document.tables[0].cell(0, 1).text)
+            self.assertIn(
+                "UX research, prototyping, design systems",
+                document.tables[0].cell(0, 0).text,
+            )
+            self.assertNotIn(";", document.tables[0].cell(0, 0).text)
             self.assertIn("PAGE", document.sections[0].footer._element.xml)
+
+    def test_resume_hyperlinks_bare_website_without_linking_email_domain(self):
+        content = """NAME: Alex Example
+ROLE: Product Designer
+CONTACT: alex@example.com
+LINKS: alex.example
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(content, path)
+            document = Document(path)
+            hyperlink_targets = {
+                relationship.target_ref
+                for relationship in document.part.rels.values()
+                if relationship.reltype == RT.HYPERLINK
+            }
+
+            self.assertIn("https://alex.example/", hyperlink_targets)
+            self.assertNotIn("https://example.com", hyperlink_targets)
 
 
 if __name__ == "__main__":

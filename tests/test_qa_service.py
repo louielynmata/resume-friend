@@ -109,6 +109,26 @@ class QAServiceTests(unittest.TestCase):
         codes = {issue.code for issue in issues}
         self.assertIn("RESUME_SECTION_AS_BULLET", codes)
 
+    def test_validator_rejects_semicolon_category_values(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "CORE SKILLS\nCATEGORY: Design Skills | Branding; typography\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            source_materials=SOURCE_RESUME,
+        )
+
+        self.assertIn(
+            "RESUME_CATEGORY_DELIMITER_INVALID",
+            {issue.code for issue in issues},
+        )
+
     def test_validator_requires_personal_header_and_closing_blocks(self):
         instructions = """RESUME HEADER - REQUIRED EXACT VALUES:
 CONTACT: alex@example.com
@@ -443,11 +463,11 @@ Graduated with honors
         codes = {issue.code for issue in issues}
 
         self.assertIn(
-            "CATEGORY: Design Skills | Accessibility; prototyping; design systems",
+            "CATEGORY: Design Skills | Accessibility, prototyping, design systems",
             fixed.resume,
         )
         self.assertIn(
-            "CATEGORY: Design Skills | Accessibility; prototyping; design systems",
+            "CATEGORY: Design Skills | Accessibility, prototyping, design systems",
             fixed.resume,
         )
         self.assertIn(
@@ -535,7 +555,7 @@ MULTIMEDIA DESIGNER & CREATIVE DIRECTOR - May 2012 - 2021; Oct 2024 - 2026
         codes = {issue.code for issue in issues}
 
         self.assertIn(
-            "CATEGORY: Design Skills | Branding; motion graphics; visual storytelling",
+            "CATEGORY: Design Skills | Branding, motion graphics, visual storytelling",
             fixed.resume,
         )
         self.assertIn(

@@ -184,7 +184,8 @@ def apply_safe_deterministic_fixes(
     )
     if categories_changed or categories_consolidated:
         changes.append(
-            "Normalized compact skill sections to CATEGORY builder markers."
+            "Normalized compact skill sections to comma-separated CATEGORY "
+            "builder markers."
         )
 
     dash_replacements = 0
@@ -386,6 +387,27 @@ def validate_draft(
             "resume",
             "Compact skill/tool sections must use `CATEGORY: Label | values`: "
             + ", ".join(missing_category_sections),
+        )
+
+    semicolon_categories = [
+        match.group(1).strip()
+        for line in resume.splitlines()
+        if (
+            match := re.match(
+                r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
+                line.strip(),
+            )
+        )
+        and ";" in match.group(2)
+    ]
+    if semicolon_categories:
+        add(
+            "RESUME_CATEGORY_DELIMITER_INVALID",
+            "formatting",
+            QASeverity.ERROR,
+            "resume",
+            "Compact skill/tool values must use commas, not semicolons: "
+            + ", ".join(semicolon_categories),
         )
 
     source_requirements = _extract_source_resume_requirements(source_resume)
@@ -1034,6 +1056,22 @@ def _normalize_resume_categories(text: str) -> tuple[str, bool]:
         normalized_block: list[str] = []
         for line in block:
             stripped = line.strip()
+            category = re.match(
+                r"^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
+                stripped,
+                re.IGNORECASE,
+            )
+            if category:
+                label, raw_values = category.groups()
+                normalized_line = (
+                    f"CATEGORY: {label.strip()} | "
+                    f"{_normalize_category_values(raw_values)}"
+                )
+                normalized_block.append(normalized_line)
+                if normalized_line != stripped:
+                    changed = True
+                continue
+
             legacy = re.match(
                 r"^(?!CATEGORY\s*:)(?!\u25cf\s)([^:]{1,60}):\s*(.+)$",
                 stripped,
@@ -1041,7 +1079,7 @@ def _normalize_resume_categories(text: str) -> tuple[str, bool]:
             )
             if legacy:
                 label, raw_values = legacy.groups()
-                values = re.sub(r"\s*\|\s*", "; ", raw_values.strip())
+                values = _normalize_category_values(raw_values)
                 normalized_block.append(
                     f"CATEGORY: {label.strip()} | {values}"
                 )
@@ -1057,7 +1095,7 @@ def _normalize_resume_categories(text: str) -> tuple[str, bool]:
         if content and not has_category and all(
             line.startswith("\u25cf ") for line in content
         ):
-            values = "; ".join(
+            values = ", ".join(
                 line[2:].strip().rstrip(".")
                 for line in content
             )
@@ -1072,6 +1110,14 @@ def _normalize_resume_categories(text: str) -> tuple[str, bool]:
         index += 1 + len(normalized_block)
 
     return "\n".join(lines).strip(), changed
+
+
+def _normalize_category_values(raw_values: str) -> str:
+    values = [
+        re.sub(r"\s+", " ", value).strip()
+        for value in re.split(r"\s*[;,|]\s*", raw_values)
+    ]
+    return ", ".join(value for value in values if value)
 
 
 def _consolidate_resume_categories(text: str) -> tuple[str, bool]:
@@ -1118,7 +1164,7 @@ def _consolidate_resume_categories(text: str) -> tuple[str, bool]:
                 label = _expanded_category_label(label)
                 key = _normalized_match_text(label)
             display_label, values = merged.setdefault(key, (label.strip(), []))
-            for value in raw_values.split(";"):
+            for value in re.split(r"\s*[;,|]\s*", raw_values):
                 clean_value = value.strip()
                 if clean_value and _normalized_match_text(clean_value) not in {
                     _normalized_match_text(existing) for existing in values
@@ -1129,7 +1175,7 @@ def _consolidate_resume_categories(text: str) -> tuple[str, bool]:
     first_start, first_end = sections[0]
     replacement = [lines[first_start], ""]
     replacement.extend(
-        f"CATEGORY: {label} | {'; '.join(values)}"
+        f"CATEGORY: {label} | {', '.join(values)}"
         for label, values in merged.values()
     )
     replacement.append("")
