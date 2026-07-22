@@ -4,11 +4,19 @@ from typing import Optional
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 from .document_normalization import normalize_resume_bullets
+
+
+_RESUME_FONT = "Poppins"
+_RESUME_BODY_SIZE = 9
+_RESUME_ACCENT = RGBColor(0x20, 0x59, 0x68)
+_COVER_FONT = "Work Sans"
+_COVER_BODY_SIZE = 12
 
 
 async def build_documents(
@@ -242,6 +250,13 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
             return "contact", clean
         return "contact", m.group(1).strip()
 
+    # Compact skills/toolkit groups. The builder renders consecutive CATEGORY
+    # lines as a reference-style column grid without asking the model to emit a
+    # Markdown or ASCII table.
+    category_m = re.match(r"^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$", line, re.IGNORECASE)
+    if category_m:
+        return "category", f"{category_m.group(1).strip()} | {category_m.group(2).strip()}"
+
     # ── Contact prefix labels (Email:, Phone:, Location:, LinkedIn: etc.) ──────
     if _CONTACT_PREFIX.match(clean):
         val = _CONTACT_PREFIX.sub("", clean).strip()
@@ -285,7 +300,7 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
                 return "role_line", line
 
     # ── Standalone date-range lines (after header block) ──────────────────────
-    if index > 8 and _DATE_PAT.match(clean):
+    if index > 5 and _DATE_PAT.match(clean):
         return "date_range", clean
 
     return "body", line
@@ -307,7 +322,14 @@ def _ensure_url(text: str) -> str:
     return text if text.startswith("http") else f"https://{text}"
 
 
-def _add_hyperlink(paragraph, display: str, url: str, size: int) -> None:
+def _add_hyperlink(
+    paragraph,
+    display: str,
+    url: str,
+    size: int | float,
+    *,
+    font_family: str = _RESUME_FONT,
+) -> None:
     """Insert a clickable hyperlink run into an existing paragraph."""
     r_id = paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)
 
@@ -326,8 +348,10 @@ def _add_hyperlink(paragraph, display: str, url: str, size: int) -> None:
     rPr.append(u)
 
     rFonts = OxmlElement("w:rFonts")
-    rFonts.set(qn("w:ascii"), "Poppins")
-    rFonts.set(qn("w:hAnsi"), "Poppins")
+    rFonts.set(qn("w:ascii"), font_family)
+    rFonts.set(qn("w:hAnsi"), font_family)
+    rFonts.set(qn("w:eastAsia"), font_family)
+    rFonts.set(qn("w:cs"), font_family)
     rPr.append(rFonts)
 
     sz = OxmlElement("w:sz")
@@ -345,7 +369,13 @@ def _add_hyperlink(paragraph, display: str, url: str, size: int) -> None:
     paragraph._p.append(hl)
 
 
-def _add_contact_line(paragraph, text: str, size: int) -> None:
+def _add_contact_line(
+    paragraph,
+    text: str,
+    size: int | float,
+    *,
+    font_family: str = _RESUME_FONT,
+) -> None:
     """Render a contact/links line, converting URL-shaped tokens to hyperlinks."""
     segments = _URL_LINK_PAT.split(text)
     for seg in segments:
@@ -354,16 +384,29 @@ def _add_contact_line(paragraph, text: str, size: int) -> None:
         if _URL_LINK_PAT.fullmatch(seg):
             url = _ensure_url(seg)
             display = _URL_LABELS.get(url, seg)
-            _add_hyperlink(paragraph, display, url, size)
+            _add_hyperlink(
+                paragraph,
+                display,
+                url,
+                size,
+                font_family=font_family,
+            )
         else:
             run = paragraph.add_run(seg)
-            _set_run_font(run, size=size)
+            _set_run_font(run, size=size, font_family=font_family)
 
 
 # ── Inline bold renderer ───────────────────────────────────────────────────────
 
-def _add_inline_runs(paragraph, text: str, size: int, bold_base: bool = False,
-                     color: Optional[RGBColor] = None) -> None:
+def _add_inline_runs(
+    paragraph,
+    text: str,
+    size: int | float,
+    bold_base: bool = False,
+    color: Optional[RGBColor] = None,
+    *,
+    font_family: str = _RESUME_FONT,
+) -> None:
     """Split text on **...** and add bold/normal runs to an existing paragraph."""
     parts = re.split(r"\*\*(.+?)\*\*", text)
     for i, part in enumerate(parts):
@@ -371,23 +414,38 @@ def _add_inline_runs(paragraph, text: str, size: int, bold_base: bool = False,
             continue
         run = paragraph.add_run(part)
         run.bold = bold_base or (i % 2 == 1)
-        _set_run_font(run, size=size)
+        _set_run_font(run, size=size, font_family=font_family)
         if color and not (i % 2 == 1):
             run.font.color.rgb = color
 
 
 # ── Resume .docx ───────────────────────────────────────────────────────────────
 
+def _next_rendered_kind(lines: list[str], index: int) -> str | None:
+    for next_index in range(index + 1, len(lines)):
+        next_line = lines[next_index].strip()
+        kind, _ = _resume_line_kind(next_line, next_index)
+        if kind != "blank":
+            return kind
+    return None
+
+
 def _build_resume_docx(content: str, path: Path) -> Path:
     doc = Document()
-    _set_margins(doc, top=0.75, bottom=0.75, left=0.9, right=0.9)
-    _set_default_font(doc)
+    # Reference PDFs use a compact Poppins layout with approximately 0.5-0.75
+    # inch margins and 8.5-9 pt body copy.
+    _set_margins(doc, top=0.55, bottom=0.5, left=0.55, right=0.55)
+    _set_default_font(doc, font_family=_RESUME_FONT, size=_RESUME_BODY_SIZE)
+    _configure_resume_bullet_style(doc)
+    _add_page_number_footer(doc)
 
     lines = _normalize_document_text(content)
     i = 0
+    current_section = ""
     while i < len(lines):
         line = lines[i].strip()
         kind, value = _resume_line_kind(line, i)
+        next_kind = _next_rendered_kind(lines, i)
 
         if kind == "blank":
             i += 1
@@ -398,42 +456,71 @@ def _build_resume_docx(content: str, path: Path) -> Path:
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = p.add_run(value.upper())
             run.bold = True
-            _set_run_font(run, size=18)
+            _set_run_font(run, size=13)
+            run.font.color.rgb = _RESUME_ACCENT
             _set_para_spacing(p, before=0, after=0)
             # Hard rule directly under name — the signature style element
-            _add_full_rule(doc, before=2, after=4)
+            _add_full_rule(doc, before=1, after=3)
 
         elif kind == "role":
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = p.add_run(value)
             run.bold = True
-            _set_run_font(run, size=10)
-            _set_para_spacing(p, before=0, after=2)
+            _set_run_font(run, size=9)
+            run.font.color.rgb = _RESUME_ACCENT
+            _set_para_spacing(p, before=0, after=1)
 
         elif kind == "tagline":
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = p.add_run(value)
-            _set_run_font(run, size=10)
-            _set_para_spacing(p, before=0, after=2)
+            _set_run_font(run, size=9)
+            _set_para_spacing(p, before=0, after=1)
 
         elif kind == "contact":
             # Strip any remaining label prefixes that sneak through
             display = _CONTACT_PREFIX.sub("", value).strip()
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            _add_contact_line(p, display, size=10)
-            _set_para_spacing(p, before=0, after=2)
+            _add_contact_line(p, display, size=8.5)
+            _set_para_spacing(p, before=0, after=1)
 
         elif kind == "divider":
             _add_full_rule(doc, before=4, after=4)
 
         elif kind == "section":
+            current_section = value.upper()
             _add_section_header(doc, value)
 
+        elif kind == "category":
+            categories: list[tuple[str, str]] = []
+            while i < len(lines):
+                candidate_kind, candidate_value = _resume_line_kind(
+                    lines[i].strip(),
+                    i,
+                )
+                if candidate_kind != "category":
+                    break
+                label, details = candidate_value.split("|", 1)
+                categories.append((label.strip(), details.strip()))
+                i += 1
+            columns = 3 if current_section == "TOOLKIT" else 2
+            _add_category_grid(doc, categories, columns=columns)
+            continue
+
         elif kind == "entry":
-            _add_entry_header(doc, value)
+            _add_entry_header(
+                doc,
+                value,
+                keep_with_next=next_kind in {
+                    "entry",
+                    "role_line",
+                    "date_range",
+                    "bullet",
+                    "body",
+                },
+            )
 
         elif kind == "role_line":
             _add_role_with_date(doc, value)
@@ -441,20 +528,27 @@ def _build_resume_docx(content: str, path: Path) -> Path:
         elif kind == "date_range":
             p = doc.add_paragraph()
             run = p.add_run(_strip_bold(value))
-            _set_run_font(run, size=10)
+            _set_run_font(run, size=_RESUME_BODY_SIZE)
             run.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
             _set_para_spacing(p, before=0, after=1)
+            _set_pagination(
+                p,
+                keep_with_next=next_kind in {"bullet", "body"},
+                keep_together=True,
+            )
 
         elif kind == "bullet":
             p = doc.add_paragraph(style="List Bullet")
-            _set_para_spacing(p, before=0, after=1)
-            _add_inline_runs(p, value, size=10)
+            _set_para_spacing(p, before=0, after=0)
+            _set_pagination(p, keep_together=True)
+            _add_inline_runs(p, value, size=_RESUME_BODY_SIZE)
 
         else:  # body
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            _set_para_spacing(p, before=0, after=2)
-            _add_inline_runs(p, value, size=10)
+            _set_para_spacing(p, before=0, after=1)
+            _set_pagination(p, keep_together=True)
+            _add_inline_runs(p, value, size=_RESUME_BODY_SIZE)
 
         i += 1
 
@@ -468,11 +562,12 @@ def _add_section_header(doc: Document, text: str) -> None:
     if not text:
         return
     p = doc.add_paragraph()
-    _set_para_spacing(p, before=6, after=3)
+    _set_para_spacing(p, before=4, after=1)
+    _set_pagination(p, keep_with_next=True, keep_together=True)
     run = p.add_run(text.upper())
     run.bold = True
-    _set_run_font(run, size=11)
-    run.font.color.rgb = RGBColor(0x1A, 0x1A, 0x1A)
+    _set_run_font(run, size=9)
+    run.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
 
 
 def _add_role_with_date(doc: Document, text: str) -> None:
@@ -480,31 +575,125 @@ def _add_role_with_date(doc: Document, text: str) -> None:
     clean = _strip_bold(text)
     m = re.match(r"^([A-Z][A-Z\s/&,]+?)\s*[-–—]\s*(.+)$", clean)
     p = doc.add_paragraph()
-    _set_para_spacing(p, before=1, after=1)
+    _set_para_spacing(p, before=1, after=0)
+    _set_pagination(p, keep_with_next=True, keep_together=True)
     if m:
         run = p.add_run(m.group(1).strip())
         run.bold = True
-        _set_run_font(run, size=10)
-        run2 = p.add_run("  –  " + m.group(2).strip())
-        _set_run_font(run2, size=10)
+        _set_run_font(run, size=_RESUME_BODY_SIZE)
+        run2 = p.add_run("  -  " + m.group(2).strip())
+        _set_run_font(run2, size=_RESUME_BODY_SIZE)
         run2.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
     else:
-        _add_inline_runs(p, text, size=10)
+        _add_inline_runs(p, text, size=_RESUME_BODY_SIZE)
 
 
-def _add_entry_header(doc: Document, text: str) -> None:
+def _add_entry_header(
+    doc: Document,
+    text: str,
+    *,
+    keep_with_next: bool = False,
+) -> None:
     clean = _strip_bold(text)
     parts = [p.strip() for p in clean.split("|")]
     p = doc.add_paragraph()
-    _set_para_spacing(p, before=5, after=1)
+    _set_para_spacing(p, before=4, after=0)
+    _set_pagination(
+        p,
+        keep_with_next=keep_with_next,
+        keep_together=True,
+    )
     if parts:
         run = p.add_run(parts[0])
         run.bold = True
-        _set_run_font(run, size=11)
+        _set_run_font(run, size=_RESUME_BODY_SIZE)
     if len(parts) > 1:
         run = p.add_run("  |  " + "  |  ".join(parts[1:]))
-        _set_run_font(run, size=10)
+        _set_run_font(run, size=_RESUME_BODY_SIZE)
         run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+
+
+def _add_category_grid(
+    doc: Document,
+    categories: list[tuple[str, str]],
+    *,
+    columns: int,
+) -> None:
+    if not categories:
+        return
+
+    columns = max(1, min(columns, len(categories)))
+    rows = (len(categories) + columns - 1) // columns
+    table = doc.add_table(rows=rows, cols=columns)
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
+    table.autofit = False
+
+    usable_width = 8.5 - 1.1
+    column_width = usable_width / columns
+    _set_table_borders_none(table)
+
+    for index, cell in enumerate(cell for row in table.rows for cell in row.cells):
+        cell.width = Inches(column_width)
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+        _set_cell_margins(
+            cell,
+            top=0,
+            bottom=80,
+            left=0 if index % columns == 0 else 100,
+            right=140 if index % columns < columns - 1 else 0,
+        )
+        paragraph = cell.paragraphs[0]
+        _set_para_spacing(paragraph, before=0, after=0)
+        _set_pagination(paragraph, keep_together=True)
+
+        if index >= len(categories):
+            continue
+
+        label, details = categories[index]
+        label_run = paragraph.add_run(label)
+        label_run.bold = True
+        _set_run_font(label_run, size=9)
+        label_run.add_break()
+        _add_inline_runs(paragraph, details, size=8.5)
+
+    for row in table.rows:
+        trPr = row._tr.get_or_add_trPr()
+        cant_split = OxmlElement("w:cantSplit")
+        trPr.append(cant_split)
+
+
+def _set_table_borders_none(table) -> None:
+    tbl_pr = table._tbl.tblPr
+    borders = tbl_pr.first_child_found_in("w:tblBorders")
+    if borders is None:
+        borders = OxmlElement("w:tblBorders")
+        tbl_pr.append(borders)
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        border = OxmlElement(f"w:{edge}")
+        border.set(qn("w:val"), "nil")
+        borders.append(border)
+
+
+def _set_cell_margins(
+    cell,
+    *,
+    top: int,
+    bottom: int,
+    left: int,
+    right: int,
+) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_mar = tc_pr.first_child_found_in("w:tcMar")
+    if tc_mar is None:
+        tc_mar = OxmlElement("w:tcMar")
+        tc_pr.append(tc_mar)
+    for side, value in (("top", top), ("bottom", bottom), ("left", left), ("right", right)):
+        node = tc_mar.find(qn(f"w:{side}"))
+        if node is None:
+            node = OxmlElement(f"w:{side}")
+            tc_mar.append(node)
+        node.set(qn("w:w"), str(value))
+        node.set(qn("w:type"), "dxa")
 
 
 def _add_full_rule(doc: Document, before: int = 0, after: int = 0) -> None:
@@ -530,7 +719,7 @@ def _add_full_rule(doc: Document, before: int = 0, after: int = 0) -> None:
 def _cover_letter_line_kind(line: str) -> str:
     if re.match(r"^cover letter$", line, re.IGNORECASE):
         return "heading"
-    if re.match(r"^to (the |hiring |dear |\w)", line, re.IGNORECASE):
+    if re.match(r"^(?:to|dear)\b", line, re.IGNORECASE):
         return "greeting"
     if re.match(r"^cheers", line, re.IGNORECASE):
         return "signoff"
@@ -557,8 +746,10 @@ def _cover_letter_lines(content: str) -> list[str]:
 
 def _build_cover_letter_docx(content: str, path: Path) -> Path:
     doc = Document()
-    _set_margins(doc, top=1.0, bottom=1.0, left=1.1, right=1.1)
-    _set_default_font(doc)
+    # Match the retained cover-letter reference: Work Sans, readable 12 pt
+    # body copy, a 16 pt heading, and one-inch side margins.
+    _set_margins(doc, top=1.15, bottom=0.75, left=1.0, right=1.0)
+    _set_default_font(doc, font_family=_COVER_FONT, size=_COVER_BODY_SIZE)
 
     lines = _cover_letter_lines(content)
     in_closing = False
@@ -574,26 +765,39 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
             p = doc.add_paragraph()
             run = p.add_run(clean)
             run.bold = True
-            _set_run_font(run, size=12)
-            _set_para_spacing(p, before=0, after=10)
+            _set_run_font(run, size=16, font_family=_COVER_FONT)
+            _set_para_spacing(p, before=0, after=20)
+            _set_pagination(p, keep_with_next=True, keep_together=True)
 
         elif kind == "greeting":
             p = doc.add_paragraph()
             run = p.add_run(clean)
             run.bold = True
-            _set_run_font(run, size=10)
-            _set_para_spacing(p, before=6, after=4)
+            _set_run_font(run, size=_COVER_BODY_SIZE, font_family=_COVER_FONT)
+            _set_para_spacing(p, before=0, after=12)
+            _set_pagination(p, keep_with_next=True, keep_together=True)
 
         elif kind == "signoff":
             p = doc.add_paragraph()
-            _set_run_font(p.add_run(clean), size=10)
-            _set_para_spacing(p, before=10, after=16)
+            _set_run_font(
+                p.add_run(clean),
+                size=_COVER_BODY_SIZE,
+                font_family=_COVER_FONT,
+            )
+            _set_para_spacing(p, before=2, after=8)
+            _set_pagination(p, keep_with_next=True, keep_together=True)
             in_closing = True
 
         elif kind == "closing":
             p = doc.add_paragraph()
-            _set_run_font(p.add_run(clean), size=10)
-            _set_para_spacing(p, before=0, after=2)
+            _set_run_font(
+                p.add_run(clean),
+                size=_COVER_BODY_SIZE,
+                font_family=_COVER_FONT,
+            )
+            _set_para_spacing(p, before=0, after=0)
+            _set_pagination(p, keep_with_next=True, keep_together=True)
+            in_closing = True
 
         else:
             if in_closing:
@@ -601,19 +805,43 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
                 is_url_or_email = line.startswith("http") or re.match(r".+@.+\..+", line)
                 p = doc.add_paragraph()
                 if is_url_or_email and line.startswith("http"):
-                    _add_hyperlink(p, clean, clean, size=10)
+                    _add_hyperlink(
+                        p,
+                        clean,
+                        clean,
+                        size=_COVER_BODY_SIZE,
+                        font_family=_COVER_FONT,
+                    )
                 elif is_url_or_email:
-                    _set_run_font(p.add_run(clean), size=10)
+                    _add_hyperlink(
+                        p,
+                        clean,
+                        f"mailto:{clean}",
+                        size=_COVER_BODY_SIZE,
+                        font_family=_COVER_FONT,
+                    )
                 else:
                     run = p.add_run(clean)
                     run.bold = True
-                    _set_run_font(run, size=10)
-                _set_para_spacing(p, before=0, after=2)
+                    _set_run_font(
+                        run,
+                        size=_COVER_BODY_SIZE,
+                        font_family=_COVER_FONT,
+                    )
+                _set_para_spacing(p, before=0, after=0)
+                _set_pagination(p, keep_together=True)
             else:
                 # Body paragraph — render inline bold from **...**
                 p = doc.add_paragraph()
-                _set_para_spacing(p, before=0, after=10)
-                _add_inline_runs(p, line, size=10)
+                p.paragraph_format.line_spacing = 1.08
+                _set_para_spacing(p, before=0, after=12)
+                _set_pagination(p, keep_together=True)
+                _add_inline_runs(
+                    p,
+                    line,
+                    size=_COVER_BODY_SIZE,
+                    font_family=_COVER_FONT,
+                )
 
     return _save_document(doc, path)
 
@@ -640,23 +868,78 @@ def _set_margins(doc: Document, top: float, bottom: float, left: float, right: f
         section.right_margin = Inches(right)
 
 
-def _set_default_font(doc: Document) -> None:
+def _set_default_font(
+    doc: Document,
+    *,
+    font_family: str,
+    size: int | float,
+) -> None:
     normal_style = doc.styles["Normal"]
-    _apply_font_family(normal_style.font)
-    normal_style.font.size = Pt(10)
+    _apply_font_family(normal_style.font, font_family)
+    normal_style.font.size = Pt(size)
+    normal_style.paragraph_format.line_spacing = 1.0
 
 
-def _set_run_font(run, size: int) -> None:
-    _apply_font_family(run.font)
+def _set_run_font(
+    run,
+    size: int | float,
+    *,
+    font_family: str = _RESUME_FONT,
+) -> None:
+    _apply_font_family(run.font, font_family)
     run.font.size = Pt(size)
 
 
-def _apply_font_family(font) -> None:
-    font.name = "Poppins"
-    font._element.rPr.rFonts.set(qn("w:ascii"), "Poppins")
-    font._element.rPr.rFonts.set(qn("w:hAnsi"), "Poppins")
-    font._element.rPr.rFonts.set(qn("w:eastAsia"), "Poppins")
-    font._element.rPr.rFonts.set(qn("w:cs"), "Poppins")
+def _apply_font_family(font, font_family: str) -> None:
+    font.name = font_family
+    font._element.rPr.rFonts.set(qn("w:ascii"), font_family)
+    font._element.rPr.rFonts.set(qn("w:hAnsi"), font_family)
+    font._element.rPr.rFonts.set(qn("w:eastAsia"), font_family)
+    font._element.rPr.rFonts.set(qn("w:cs"), font_family)
+
+
+def _configure_resume_bullet_style(doc: Document) -> None:
+    style = doc.styles["List Bullet"]
+    _apply_font_family(style.font, _RESUME_FONT)
+    style.font.size = Pt(_RESUME_BODY_SIZE)
+    style.paragraph_format.left_indent = Inches(0.28)
+    style.paragraph_format.first_line_indent = Inches(-0.18)
+    style.paragraph_format.space_before = Pt(0)
+    style.paragraph_format.space_after = Pt(0)
+    style.paragraph_format.line_spacing = 1.0
+
+
+def _add_page_number_footer(doc: Document) -> None:
+    for section in doc.sections:
+        footer = section.footer
+        paragraph = footer.paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _set_para_spacing(paragraph, before=0, after=0)
+
+        field = OxmlElement("w:fldSimple")
+        field.set(qn("w:instr"), "PAGE")
+        run = OxmlElement("w:r")
+        run_properties = OxmlElement("w:rPr")
+
+        fonts = OxmlElement("w:rFonts")
+        fonts.set(qn("w:ascii"), _RESUME_FONT)
+        fonts.set(qn("w:hAnsi"), _RESUME_FONT)
+        run_properties.append(fonts)
+
+        size = OxmlElement("w:sz")
+        size.set(qn("w:val"), "14")
+        run_properties.append(size)
+
+        color = OxmlElement("w:color")
+        color.set(qn("w:val"), "CCCCCC")
+        run_properties.append(color)
+
+        run.append(run_properties)
+        text = OxmlElement("w:t")
+        text.text = "1"
+        run.append(text)
+        field.append(run)
+        paragraph._p.append(field)
 
 
 def _save_document(doc: Document, path: Path) -> Path:
@@ -672,3 +955,14 @@ def _save_document(doc: Document, path: Path) -> Path:
 def _set_para_spacing(p, before: int = 0, after: int = 4) -> None:
     p.paragraph_format.space_before = Pt(before)
     p.paragraph_format.space_after = Pt(after)
+
+
+def _set_pagination(
+    paragraph,
+    *,
+    keep_with_next: bool = False,
+    keep_together: bool = False,
+) -> None:
+    paragraph.paragraph_format.keep_with_next = keep_with_next
+    paragraph.paragraph_format.keep_together = keep_together
+    paragraph.paragraph_format.widow_control = True

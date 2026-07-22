@@ -12,6 +12,7 @@ export type GenerationStageId =
 export type GenerationStageStatus = "pending" | "active" | "done" | "failed";
 
 export interface GeneratePayload {
+  generation_id: string;
   job_description: string;
   ai_provider: AIProvider;
   job_type: JobType;
@@ -23,6 +24,13 @@ export interface GeneratePayload {
   date_job_posted?: string;
   contact_email?: string;
   company_context?: string;
+}
+
+export interface GenerationStatusResult {
+  generation_id: string;
+  stage: GenerationStageId;
+  status: "running" | "completed" | "failed";
+  detail?: string;
 }
 
 export interface JobMeta {
@@ -77,6 +85,7 @@ export interface GenerateResult {
   qa_report_path?: string;
   qa_issues: string[];
   qa_changes: string[];
+  processing_seconds: number;
   message: string;
 }
 

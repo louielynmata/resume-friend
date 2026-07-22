@@ -24,6 +24,14 @@ function Md({ children }: { children: string }) {
   return <span dangerouslySetInnerHTML={{ __html: md(children) }} />;
 }
 
+function formatProcessingTime(seconds: number): string {
+  const safeSeconds = Math.max(0, seconds);
+  if (safeSeconds < 60) return `${safeSeconds.toFixed(1)} seconds`;
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainder = safeSeconds % 60;
+  return `${minutes} min ${remainder.toFixed(1)} sec (${safeSeconds.toFixed(1)} seconds total)`;
+}
+
 // ── Analysis parsing ──────────────────────────────────────────────────────────
 
 interface ParsedAnalysis {
@@ -314,6 +322,18 @@ export function StepResult({ result, onReset }: Props) {
           <h2 className="text-lg font-semibold text-slate-800">Done!</h2>
           <p className="text-xs text-slate-500">Your resume and cover letter have been generated.</p>
         </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">Processing time</p>
+          <p className="text-sm font-semibold text-indigo-900">
+            {formatProcessingTime(result.processing_seconds)}
+          </p>
+        </div>
+        <span className="text-xs font-mono text-indigo-600">
+          {result.processing_seconds.toFixed(2)} s
+        </span>
       </div>
 
       <div className="space-y-4">

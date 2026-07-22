@@ -1,4 +1,11 @@
-import type { ApiErrorPayload, ExtractJobMetaResult, GeneratePayload, GenerateResult, ModelFilesStatus } from "../types";
+import type {
+  ApiErrorPayload,
+  ExtractJobMetaResult,
+  GeneratePayload,
+  GenerateResult,
+  GenerationStatusResult,
+  ModelFilesStatus,
+} from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -48,6 +55,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  generationStatus: (generationId: string) =>
+    request<GenerationStatusResult>(
+      `/api/generate/status/${encodeURIComponent(generationId)}`,
+    ),
 
   openFolder: (folderPath: string) =>
     request<{ opened: boolean }>("/api/open-folder", {

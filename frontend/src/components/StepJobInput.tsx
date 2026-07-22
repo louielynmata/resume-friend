@@ -6,10 +6,18 @@ interface Props {
   onChange: (text: string) => void;
   companyContext: string;
   onCompanyContextChange: (text: string) => void;
+  onClearForm: () => void;
   onNext: () => void;
 }
 
-export function StepJobInput({ value, onChange, companyContext, onCompanyContextChange, onNext }: Props) {
+export function StepJobInput({
+  value,
+  onChange,
+  companyContext,
+  onCompanyContextChange,
+  onClearForm,
+  onNext,
+}: Props) {
   const [mode, setMode] = useState<"text" | "url">("text");
   const [url, setUrl] = useState("");
   const [scraping, setScraping] = useState(false);
@@ -54,11 +62,25 @@ export function StepJobInput({ value, onChange, companyContext, onCompanyContext
     setCompanyError("");
   }
 
+  function handleClearForm() {
+    if (!window.confirm("Clear all saved job and application form values?")) {
+      return;
+    }
+    setMode("text");
+    setUrl("");
+    setScrapeError("");
+    setCompanyUrl("");
+    setCompanyError("");
+    onClearForm();
+  }
+
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-xl font-semibold text-slate-800 mb-1">Job Description</h2>
-        <p className="text-sm text-slate-500">Paste the job posting text or enter a URL to scrape it.</p>
+        <p className="text-sm text-slate-500">
+          Paste the job posting text or enter a URL to scrape it. Entries are saved in this browser.
+        </p>
       </div>
 
       {/* Mode toggle */}
@@ -89,6 +111,8 @@ export function StepJobInput({ value, onChange, companyContext, onCompanyContext
         <div className="space-y-2">
           <input
             type="url"
+            name="job_posting_url"
+            autoComplete="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://jobs.example.com/position/12345"
@@ -114,6 +138,8 @@ export function StepJobInput({ value, onChange, companyContext, onCompanyContext
         </div>
       ) : (
         <textarea
+          name="job_description"
+          autoComplete="on"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Paste the full job description here…"
@@ -151,6 +177,8 @@ export function StepJobInput({ value, onChange, companyContext, onCompanyContext
           <div className="flex gap-2">
             <input
               type="url"
+              name="company_about_url"
+              autoComplete="url"
               value={companyUrl}
               onChange={(e) => setCompanyUrl(e.target.value)}
               placeholder="https://company.com/about"
@@ -169,8 +197,16 @@ export function StepJobInput({ value, onChange, companyContext, onCompanyContext
         {companyError && <p className="text-red-500 text-xs">{companyError}</p>}
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-3">
         <button
+          type="button"
+          onClick={handleClearForm}
+          className="px-4 py-2 text-red-600 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-50"
+        >
+          Clear Form
+        </button>
+        <button
+          type="button"
           onClick={onNext}
           disabled={!value.trim()}
           className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"

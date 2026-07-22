@@ -44,6 +44,66 @@ const DEFAULT_META_TOUCHED: Record<keyof JobMeta, boolean> = {
   contact_email: false,
 };
 
+const FORM_STORAGE_KEY = "resume-friend.form.v1";
+
+interface PersistedForm {
+  jd: string;
+  companyContext: string;
+  aiProvider: AIProvider;
+  jobType: JobType;
+  meta: JobMeta;
+}
+
+function savedString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function loadPersistedForm(): PersistedForm {
+  const defaults: PersistedForm = {
+    jd: "",
+    companyContext: "",
+    aiProvider: "claude",
+    jobType: "development",
+    meta: { ...DEFAULT_META },
+  };
+  if (typeof window === "undefined") return defaults;
+
+  try {
+    const raw = window.localStorage.getItem(FORM_STORAGE_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<PersistedForm>;
+    const savedMeta =
+      parsed.meta && typeof parsed.meta === "object"
+        ? (parsed.meta as Partial<JobMeta>)
+        : {};
+    return {
+      jd: savedString(parsed.jd),
+      companyContext: savedString(parsed.companyContext),
+      aiProvider:
+        parsed.aiProvider === "claude" ||
+        parsed.aiProvider === "openai" ||
+        parsed.aiProvider === "ollama"
+          ? parsed.aiProvider
+          : defaults.aiProvider,
+      jobType:
+        parsed.jobType === "design" || parsed.jobType === "development"
+          ? parsed.jobType
+          : defaults.jobType,
+      meta: {
+        position: savedString(savedMeta.position),
+        company: savedString(savedMeta.company),
+        location: savedString(savedMeta.location),
+        salary_annual: savedString(savedMeta.salary_annual),
+        salary_hourly: savedString(savedMeta.salary_hourly),
+        date_job_posted: savedString(savedMeta.date_job_posted),
+        contact_email: savedString(savedMeta.contact_email),
+      },
+    };
+  } catch {
+    return defaults;
+  }
+}
+
 const GENERATION_STAGES: Array<
   Pick<GenerationFeedItem, "id" | "label" | "description">
 > = [
@@ -93,21 +153,39 @@ const GENERATION_STAGES: Array<
 function buildGenerationFeed(
   activeStage?: GenerationStageId,
 ): GenerationFeedItem[] {
-  return GENERATION_STAGES.map((stage) => ({
+  const activeIndex = activeStage
+    ? GENERATION_STAGES.findIndex((stage) => stage.id === activeStage)
+    : -1;
+  return GENERATION_STAGES.map((stage, index) => ({
     ...stage,
-    status: stage.id === activeStage ? "active" : "pending",
+    status:
+      index < activeIndex
+        ? "done"
+        : index === activeIndex
+          ? "active"
+          : "pending",
   }));
 }
 
 export default function App() {
+  const [savedForm] = useState(loadPersistedForm);
   const [step, setStep] = useState(0);
-  const [jd, setJd] = useState("");
-  const [companyContext, setCompanyContext] = useState("");
-  const [aiProvider, setAiProvider] = useState<AIProvider>("claude");
-  const [jobType, setJobType] = useState<JobType>("development");
-  const [meta, setMeta] = useState<JobMeta>(DEFAULT_META);
+  const [jd, setJd] = useState(savedForm.jd);
+  const [companyContext, setCompanyContext] = useState(
+    savedForm.companyContext,
+  );
+  const [aiProvider, setAiProvider] = useState<AIProvider>(
+    savedForm.aiProvider,
+  );
+  const [jobType, setJobType] = useState<JobType>(savedForm.jobType);
+  const [meta, setMeta] = useState<JobMeta>(savedForm.meta);
   const [metaTouched, setMetaTouched] =
-    useState<Record<keyof JobMeta, boolean>>(DEFAULT_META_TOUCHED);
+    useState<Record<keyof JobMeta, boolean>>(() =>
+      (Object.keys(DEFAULT_META_TOUCHED) as Array<keyof JobMeta>).reduce(
+        (touched, key) => ({ ...touched, [key]: Boolean(savedForm.meta[key]) }),
+        { ...DEFAULT_META_TOUCHED },
+      ),
+    );
   const [generating, setGenerating] = useState(false);
   const [extractingMeta, setExtractingMeta] = useState(false);
   const [error, setError] = useState("");
@@ -119,35 +197,74 @@ export default function App() {
   );
   const [result, setResult] = useState<GenerateResult | null>(null);
   const generationIntervalRef = useRef<number | null>(null);
+  const generationStartedAtRef = useRef<number | null>(null);
+  const activeGenerationIdRef = useRef<string | null>(null);
+  const generationPollInFlightRef = useRef(false);
+  const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
   const [modelFilesStatus, setModelFilesStatus] = useState<ModelFilesStatus | null>(null);
   const [modelFilesChecked, setModelFilesChecked] = useState(false);
   const [modelFilesBannerDismissed, setModelFilesBannerDismissed] = useState(false);
 
-  function stopGenerationTicker() {
+  function stopGenerationTicker(captureElapsed = true) {
     if (generationIntervalRef.current !== null) {
       window.clearInterval(generationIntervalRef.current);
       generationIntervalRef.current = null;
     }
+    if (generationStartedAtRef.current !== null) {
+      if (captureElapsed) {
+        setGenerationElapsedSeconds(
+          (window.performance.now() - generationStartedAtRef.current) / 1000,
+        );
+      }
+      generationStartedAtRef.current = null;
+    }
+    activeGenerationIdRef.current = null;
+    generationPollInFlightRef.current = false;
   }
 
-  function startGenerationTicker() {
-    stopGenerationTicker();
-    const stageIds = GENERATION_STAGES.map((stage) => stage.id);
-    let index = 0;
+  function startGenerationTicker(generationId: string) {
+    stopGenerationTicker(false);
+    activeGenerationIdRef.current = generationId;
+    generationStartedAtRef.current = window.performance.now();
+    setGenerationElapsedSeconds(0);
 
-    setGenerationFeed(buildGenerationFeed(stageIds[index]));
+    setGenerationFeed(buildGenerationFeed("validate_request"));
+
+    async function pollGenerationStatus() {
+      if (generationPollInFlightRef.current) return;
+      generationPollInFlightRef.current = true;
+      try {
+        const status = await api.generationStatus(generationId);
+        if (activeGenerationIdRef.current !== generationId) return;
+        if (status.status === "completed") {
+          markGenerationComplete();
+        } else if (status.status === "failed") {
+          markGenerationFailed(
+            status.stage,
+            status.detail || "Generation failed.",
+          );
+        } else {
+          setGenerationFeed(buildGenerationFeed(status.stage));
+        }
+      } catch (pollError: unknown) {
+        // A 404 is expected if the first poll wins the race with the POST request.
+        if (!(pollError instanceof ApiError && pollError.status === 404)) {
+          // The generation request remains authoritative if progress polling fails.
+        }
+      } finally {
+        generationPollInFlightRef.current = false;
+      }
+    }
+
+    void pollGenerationStatus();
 
     generationIntervalRef.current = window.setInterval(() => {
-      index = Math.min(index + 1, stageIds.length - 2);
-      setGenerationFeed((current) => {
-        const hasTerminalState = current.some(
-          (item) => item.status === "failed" || item.status === "done",
-        );
-        return hasTerminalState
-          ? current
-          : buildGenerationFeed(stageIds[index]);
-      });
-    }, 1400);
+      if (generationStartedAtRef.current === null) return;
+      const elapsedSeconds =
+        (window.performance.now() - generationStartedAtRef.current) / 1000;
+      setGenerationElapsedSeconds(elapsedSeconds);
+      void pollGenerationStatus();
+    }, 500);
   }
 
   function markGenerationFailed(
@@ -188,7 +305,25 @@ export default function App() {
     );
   }
 
-  useEffect(() => () => stopGenerationTicker(), []);
+  useEffect(() => () => stopGenerationTicker(false), []);
+
+  useEffect(() => {
+    const saveTimer = window.setTimeout(() => {
+      try {
+        const form: PersistedForm = {
+          jd,
+          companyContext,
+          aiProvider,
+          jobType,
+          meta,
+        };
+        window.localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(form));
+      } catch {
+        // Storage may be disabled or full; form use should continue normally.
+      }
+    }, 200);
+    return () => window.clearTimeout(saveTimer);
+  }, [jd, companyContext, aiProvider, jobType, meta]);
 
   useEffect(() => {
     api.modelFiles()
@@ -267,9 +402,14 @@ export default function App() {
     setErrorCode("");
     setErrorStatus(undefined);
     setErrorHint("");
-    startGenerationTicker();
+    const generationId =
+      typeof window.crypto.randomUUID === "function"
+        ? window.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    startGenerationTicker(generationId);
     try {
       const res = await api.generate({
+        generation_id: generationId,
         job_description: jd,
         ai_provider: aiProvider,
         job_type: jobType,
@@ -288,6 +428,7 @@ export default function App() {
       });
       stopGenerationTicker();
       markGenerationComplete();
+      setGenerationElapsedSeconds(res.processing_seconds);
       setResult(res);
       setStep(3);
     } catch (e: unknown) {
@@ -320,17 +461,37 @@ export default function App() {
 
   function handleReset() {
     setStep(0);
-    setJd("");
-    setCompanyContext("");
-    setMeta(DEFAULT_META);
-    setMetaTouched(DEFAULT_META_TOUCHED);
     setResult(null);
     setError("");
     setErrorCode("");
     setErrorStatus(undefined);
     setErrorHint("");
     setGenerationFeed([]);
-    stopGenerationTicker();
+    stopGenerationTicker(false);
+    setGenerationElapsedSeconds(0);
+  }
+
+  function handleClearForm() {
+    stopGenerationTicker(false);
+    setStep(0);
+    setJd("");
+    setCompanyContext("");
+    setAiProvider("claude");
+    setJobType("development");
+    setMeta({ ...DEFAULT_META });
+    setMetaTouched({ ...DEFAULT_META_TOUCHED });
+    setResult(null);
+    setError("");
+    setErrorCode("");
+    setErrorStatus(undefined);
+    setErrorHint("");
+    setGenerationFeed([]);
+    setGenerationElapsedSeconds(0);
+    try {
+      window.localStorage.removeItem(FORM_STORAGE_KEY);
+    } catch {
+      // Storage may be disabled; clearing the visible form should still work.
+    }
   }
 
   const missingFiles = modelFilesStatus
@@ -441,6 +602,7 @@ export default function App() {
               onChange={setJd}
               companyContext={companyContext}
               onCompanyContextChange={setCompanyContext}
+              onClearForm={handleClearForm}
               onNext={() => setStep(1)}
             />
           )}
@@ -466,6 +628,7 @@ export default function App() {
               generationErrorCode={errorCode}
               generationErrorStatus={errorStatus}
               generationErrorHint={errorHint}
+              generationElapsedSeconds={generationElapsedSeconds}
             />
           )}
           {step === 3 && result && (

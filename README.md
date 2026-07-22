@@ -142,6 +142,8 @@ ANTHROPIC_API_KEY=           # for Claude
 OPENAI_API_KEY=              # for ChatGPT
 QA_PROVIDER=same             # same writer provider, or claude/openai/ollama
 QA_VISUAL_ENABLED=true       # inspect rendered PDFs when available
+QA_DESIGN_RESUME_MAX_PAGES=3 # design reference allows the broader 3-page format
+REFERENCE_DIR=./ref          # visual-authority PDF examples used by QA
 NOTION_TOKEN=                # for Notion tracking
 NOTION_DATABASE_ID=          # see Notion Setup section below
 ```
@@ -177,7 +179,11 @@ facts, portfolio links, and personal writing preferences only in
 
 QA is enabled by default. It always performs one independent review, then makes
 up to `QA_MAX_REPAIRS` additional corrective retries while validating the
-actual DOCX/PDF artifacts. Each output folder receives `qa_report.json`.
+actual DOCX/PDF artifacts. The default is four retries, allowing five total QA
+review attempts. Design resumes use the three-page reference limit;
+development resumes retain the two-page default. Visual QA also receives the
+PDFs under `ref/` and treats material reference-format drift as blocking. Each
+output folder receives `qa_report.json`.
 Notion logging occurs only after blocking QA issues are resolved.
 
 Mechanical invariants such as resume bullet markers, the configured applicant

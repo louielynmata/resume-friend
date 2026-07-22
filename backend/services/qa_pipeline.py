@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from ..config import settings
 from ..qa_models import (
@@ -54,13 +55,17 @@ async def run_qa_pipeline(
     company: str,
     position_slug: str,
     output_dir: Path,
+    job_type: str = "development",
+    progress_callback: Callable[[str], None] | None = None,
 ) -> QAPipelineResult:
+    _notify_progress(progress_callback, "qa_review")
     qa_provider = _resolve_provider(selected_provider)
     source_materials = "\n\n".join(
         (source_resume, instructions, writing_examples, transcript)
     )
 
     if not settings.qa_enabled:
+        _notify_progress(progress_callback, "build_documents")
         docs = await build_documents(
             ai_response=draft_to_ai_response(draft),
             owner_name=owner_name,
@@ -82,6 +87,9 @@ async def run_qa_pipeline(
     draft, deterministic_changes = apply_safe_deterministic_fixes(
         draft,
         owner_name=owner_name,
+        target_role=position,
+        source_resume=source_resume,
+        source_materials=source_materials,
     )
     _extend_unique(changes_made, deterministic_changes)
 
@@ -96,6 +104,7 @@ async def run_qa_pipeline(
         if iterations == 0 or _blocking(pending_issues):
             if iterations >= max_reviews:
                 if settings.qa_fail_open and docs is None:
+                    _notify_progress(progress_callback, "build_documents")
                     docs = await build_documents(
                         ai_response=draft_to_ai_response(draft),
                         owner_name=owner_name,
@@ -113,6 +122,7 @@ async def run_qa_pipeline(
                     docs=docs,
                 )
             try:
+                _notify_progress(progress_callback, "qa_review")
                 correction = await review_and_fix_draft(
                     provider=qa_provider,
                     draft=draft,
@@ -126,6 +136,7 @@ async def run_qa_pipeline(
                     position=position,
                     company=company,
                     owner_name=owner_name,
+                    job_type=job_type,
                 )
             except Exception as exc:
                 raise QAPipelineReviewError(str(exc)) from exc
@@ -140,6 +151,9 @@ async def run_qa_pipeline(
                 draft,
                 owner_name=owner_name,
                 previous_analysis=previous_analysis,
+                target_role=position,
+                source_resume=source_resume,
+                source_materials=source_materials,
             )
             iterations += 1
             _extend_unique(changes_made, correction.changes_made)
@@ -155,13 +169,23 @@ async def run_qa_pipeline(
         if _blocking(pending_issues):
             continue
 
+        _notify_progress(progress_callback, "build_documents")
         docs = await build_documents(
             ai_response=draft_to_ai_response(draft),
             owner_name=owner_name,
             position_slug=position_slug,
             output_dir=output_dir,
         )
-        artifact_result = inspect_artifacts(docs)
+        resume_max_pages = (
+            settings.qa_design_resume_max_pages
+            if job_type == "design"
+            else settings.qa_resume_max_pages
+        )
+        _notify_progress(progress_callback, "artifact_validation")
+        artifact_result = inspect_artifacts(
+            docs,
+            resume_max_pages=resume_max_pages,
+        )
         final_issues = [*pending_issues, *artifact_result.issues]
 
         if settings.qa_visual_enabled and not _blocking(artifact_result.issues):
@@ -186,8 +210,8 @@ async def run_qa_pipeline(
                         f"Visual QA could not run: {exc}"
                     ) from exc
             else:
-                if not visual_result.passed:
-                    final_issues.extend(
+                for issue in visual_result.issues:
+                    final_issues.append(
                         QAIssue(
                             code="VISUAL_QA_FAILED",
                             category="formatting",
@@ -195,7 +219,32 @@ async def run_qa_pipeline(
                             document="package",
                             message=issue,
                         )
-                        for issue in visual_result.issues
+                    )
+                final_issues.extend(
+                    QAIssue(
+                        code="VISUAL_QA_ADVISORY",
+                        category="formatting",
+                        severity=QASeverity.WARNING,
+                        document="package",
+                        message=warning,
+                    )
+                    for warning in visual_result.warnings
+                )
+                if (
+                    not visual_result.passed
+                    and not visual_result.issues
+                ):
+                    final_issues.append(
+                        QAIssue(
+                            code="VISUAL_QA_INCONCLUSIVE",
+                            category="formatting",
+                            severity=QASeverity.ERROR,
+                            document="package",
+                            message=(
+                                visual_result.summary
+                                or "Visual QA did not pass but supplied no blocking defect."
+                            ),
+                        )
                     )
 
         if not _blocking(final_issues):
@@ -236,6 +285,14 @@ def _resolve_provider(selected_provider: str) -> str:
     if provider not in {"claude", "openai", "ollama"}:
         raise ValueError("QA_PROVIDER must be same, claude, openai, or ollama.")
     return provider
+
+
+def _notify_progress(
+    progress_callback: Callable[[str], None] | None,
+    stage: str,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(stage)
 
 
 def _blocking(issues: list[QAIssue]) -> list[QAIssue]:

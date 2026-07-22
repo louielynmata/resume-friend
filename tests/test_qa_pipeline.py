@@ -9,8 +9,12 @@ from backend.qa_models import (
     QAAgentResult,
     QAIssue,
     QASeverity,
+    VisualQAResult,
 )
-from backend.services.qa_pipeline import QAPipelineValidationError, run_qa_pipeline
+from backend.services.qa_pipeline import (
+    QAPipelineValidationError,
+    run_qa_pipeline,
+)
 
 from tests.test_qa_service import SOURCE_RESUME, valid_draft
 
@@ -36,6 +40,7 @@ class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_pipeline_reviews_builds_and_writes_report(self):
         corrected = valid_draft()
+        progress_events: list[str] = []
         reviewer_result = QAAgentResult(
             resume=corrected.resume,
             cover_letter=corrected.cover_letter,
@@ -68,12 +73,18 @@ class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
                 company="Example Company",
                 position_slug="ProductDesigner",
                 output_dir=Path(tmp),
+                progress_callback=progress_events.append,
             )
 
             self.assertEqual(result.report.status, "passed")
             self.assertEqual(result.report.iterations, 1)
             self.assertTrue(result.report_path.exists())
             self.assertIn("Corrected one sentence", result.report.changes_made)
+            self.assertEqual(
+                progress_events[-2:],
+                ["build_documents", "artifact_validation"],
+            )
+            self.assertIn("qa_review", progress_events)
 
     async def test_fail_open_returns_needs_review_and_keeps_notion_gate_available(self):
         invalid = valid_draft()
@@ -168,6 +179,82 @@ class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
                 result.report.changes_made,
             )
             self.assertEqual(reviewer.await_args.kwargs["owner_name"], "Alex Example")
+
+    async def test_pipeline_repairs_retained_failure_cluster_after_one_review(self):
+        source_resume = """# Alex Example
+alex@example.com
+[alex.example](https://alex.example/)
+
+## Work Experience
+
+### Creative Lead & Multimedia Artist
+**Example Network**
+March – July 2015
+"""
+        draft = valid_draft()
+        draft.resume = """NAME: Alex Example
+ROLE: Multimedia Designer
+CONTACT: alex@example.com
+LINKS: www.alex.example
+
+PROFESSIONAL SUMMARY
+Multimedia designer focused on accessible digital experiences.
+
+---
+
+EXPERIENCE
+Example Network
+CREATIVE LEAD & MULTIMEDIA ARTIST - N/A
+● Led a multidisciplinary creative team.
+"""
+        draft.cover_letter = draft.cover_letter.replace(
+            "Cover Letter",
+            "# Cover Letter",
+            1,
+        )
+        reviewer_result = QAAgentResult(
+            resume=draft.resume,
+            cover_letter=draft.cover_letter,
+            analysis=draft.analysis,
+        )
+        settings.qa_max_repairs = 4
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "backend.services.qa_pipeline.review_and_fix_draft",
+            new=AsyncMock(return_value=reviewer_result),
+        ) as reviewer, patch(
+            "backend.services.qa_pipeline.build_documents",
+            new=AsyncMock(return_value={"resume_docx": "resume.docx"}),
+        ), patch(
+            "backend.services.qa_pipeline.inspect_artifacts",
+            return_value=ArtifactQAResult(resume_pages=2, cover_letter_pages=1),
+        ):
+            result = await run_qa_pipeline(
+                selected_provider="ollama",
+                draft=draft,
+                owner_name="Alex Example",
+                source_resume=source_resume,
+                instructions="Keep all facts truthful.",
+                writing_examples="I write concise letters.",
+                transcript="Education facts.",
+                job_description="Multimedia designer role.",
+                company_context="",
+                position="Multimedia Designer",
+                company="Example Company",
+                position_slug="MultimediaDesigner",
+                output_dir=Path(tmp),
+                job_type="design",
+            )
+
+            self.assertEqual(result.report.status, "passed")
+            self.assertEqual(result.report.iterations, 1)
+            self.assertEqual(reviewer.await_count, 1)
+            self.assertTrue(result.draft.cover_letter.startswith("Cover Letter\n"))
+            self.assertIn(
+                "CREATIVE LEAD & MULTIMEDIA ARTIST - March - July 2015",
+                result.draft.resume,
+            )
+            self.assertIn("LINKS: alex.example", result.draft.resume)
 
     async def test_text_validation_failure_reports_qa_review_stage_and_retains_draft(self):
         invalid = valid_draft()
@@ -365,6 +452,148 @@ class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
                 )
 
             self.assertEqual(raised.exception.stage, "artifact_validation")
+
+    async def test_minor_visual_warning_is_non_blocking(self):
+        draft = valid_draft()
+        reviewer_result = QAAgentResult(
+            resume=draft.resume,
+            cover_letter=draft.cover_letter,
+            analysis=draft.analysis,
+        )
+        settings.qa_visual_enabled = True
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "backend.services.qa_pipeline.review_and_fix_draft",
+            new=AsyncMock(return_value=reviewer_result),
+        ) as reviewer, patch(
+            "backend.services.qa_pipeline.build_documents",
+            new=AsyncMock(return_value={"resume_docx": "resume.docx"}),
+        ), patch(
+            "backend.services.qa_pipeline.inspect_artifacts",
+            return_value=ArtifactQAResult(resume_pages=2, cover_letter_pages=1),
+        ), patch(
+            "backend.services.qa_pipeline.inspect_artifacts_visually",
+            new=AsyncMock(
+                return_value=VisualQAResult(
+                    passed=True,
+                    warnings=[
+                        "Cover letter, page 1: excessive whitespace after the greeting."
+                    ],
+                )
+            ),
+        ):
+            result = await run_qa_pipeline(
+                selected_provider="ollama",
+                draft=draft,
+                owner_name="Alex Example",
+                source_resume=SOURCE_RESUME,
+                instructions="Keep all facts truthful.",
+                writing_examples="I write concise letters.",
+                transcript="Education facts.",
+                job_description="Product designer role.",
+                company_context="",
+                position="Product Designer",
+                company="Example Company",
+                position_slug="ProductDesigner",
+                output_dir=Path(tmp),
+            )
+
+            self.assertEqual(result.report.status, "passed_with_warnings")
+            self.assertEqual(reviewer.await_count, 1)
+            self.assertEqual(result.report.issues[-1].code, "VISUAL_QA_ADVISORY")
+            self.assertEqual(result.report.issues[-1].severity, QASeverity.WARNING)
+
+    async def test_visual_reference_fidelity_issue_is_blocking(self):
+        draft = valid_draft()
+        reviewer_result = QAAgentResult(
+            resume=draft.resume,
+            cover_letter=draft.cover_letter,
+            analysis=draft.analysis,
+        )
+        settings.qa_visual_enabled = True
+        settings.qa_max_repairs = 0
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "backend.services.qa_pipeline.review_and_fix_draft",
+            new=AsyncMock(return_value=reviewer_result),
+        ), patch(
+            "backend.services.qa_pipeline.build_documents",
+            new=AsyncMock(return_value={"resume_docx": "resume.docx"}),
+        ), patch(
+            "backend.services.qa_pipeline.inspect_artifacts",
+            return_value=ArtifactQAResult(resume_pages=2, cover_letter_pages=1),
+        ), patch(
+            "backend.services.qa_pipeline.inspect_artifacts_visually",
+            new=AsyncMock(
+                return_value=VisualQAResult(
+                    passed=False,
+                    issues=[
+                        "Resume page 1 uses an oversized black header that diverges from the compact teal reference hierarchy."
+                    ],
+                )
+            ),
+        ):
+            with self.assertRaises(QAPipelineValidationError) as raised:
+                await run_qa_pipeline(
+                    selected_provider="ollama",
+                    draft=draft,
+                    owner_name="Alex Example",
+                    source_resume=SOURCE_RESUME,
+                    instructions="Keep all facts truthful.",
+                    writing_examples="I write concise letters.",
+                    transcript="Education facts.",
+                    job_description="Product designer role.",
+                    company_context="",
+                    position="Product Designer",
+                    company="Example Company",
+                    position_slug="ProductDesigner",
+                    output_dir=Path(tmp),
+                )
+
+            report = Path(raised.exception.report_path).read_text(encoding="utf-8")
+            self.assertIn("VISUAL_QA_FAILED", report)
+            self.assertIn('"severity": "error"', report)
+
+    async def test_pipeline_allows_five_total_review_attempts(self):
+        invalid = valid_draft()
+        invalid.resume = invalid.resume.replace(
+            "Product designer focused",
+            "I am a product designer focused",
+        )
+        reviewer_result = QAAgentResult(
+            resume=invalid.resume,
+            cover_letter=invalid.cover_letter,
+            analysis=invalid.analysis,
+        )
+        settings.qa_max_repairs = 4
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "backend.services.qa_pipeline.review_and_fix_draft",
+            new=AsyncMock(return_value=reviewer_result),
+        ) as reviewer, patch(
+            "backend.services.qa_pipeline.build_documents",
+            new=AsyncMock(return_value={"resume_docx": "resume.docx"}),
+        ):
+            with self.assertRaises(QAPipelineValidationError) as raised:
+                await run_qa_pipeline(
+                    selected_provider="ollama",
+                    draft=invalid,
+                    owner_name="Alex Example",
+                    source_resume=SOURCE_RESUME,
+                    instructions="Keep all facts truthful.",
+                    writing_examples="I write concise letters.",
+                    transcript="Education facts.",
+                    job_description="Product designer role.",
+                    company_context="",
+                    position="Product Designer",
+                    company="Example Company",
+                    position_slug="ProductDesigner",
+                    output_dir=Path(tmp),
+                )
+
+            report = Path(raised.exception.report_path).read_text(encoding="utf-8")
+            self.assertEqual(reviewer.await_count, 5)
+            self.assertIn('"iterations": 5', report)
 
 
 if __name__ == "__main__":

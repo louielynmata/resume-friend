@@ -11,6 +11,7 @@ interface Props {
   generationErrorCode?: string;
   generationErrorStatus?: number;
   generationErrorHint?: string;
+  generationElapsedSeconds: number;
 }
 
 function Field({
@@ -43,6 +44,13 @@ function statusClass(status: GenerationFeedItem["status"]) {
   return "bg-slate-100 text-slate-500 border-slate-200";
 }
 
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds.toFixed(1)} sec`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = Math.floor(seconds % 60);
+  return `${minutes} min ${remaining} sec`;
+}
+
 export function StepJobMeta({
   meta,
   onChange,
@@ -54,6 +62,7 @@ export function StepJobMeta({
   generationErrorCode,
   generationErrorStatus,
   generationErrorHint,
+  generationElapsedSeconds,
 }: Props) {
   const set = (key: keyof JobMeta) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...meta, [key]: e.target.value });
@@ -90,9 +99,14 @@ export function StepJobMeta({
 
       {generationFeed.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800">Generation Feed</h3>
-            <p className="text-xs text-slate-500">Tracks the current pipeline and where failures occur.</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">Generation Feed</h3>
+              <p className="text-xs text-slate-500">Tracks the current pipeline and where failures occur.</p>
+            </div>
+            <p className="text-xs font-mono text-slate-600 whitespace-nowrap">
+              {generating ? "Elapsed" : "Duration"}: {formatElapsed(generationElapsedSeconds)}
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -124,6 +138,8 @@ export function StepJobMeta({
         <Field label="Position" required>
           <input
             type="text"
+            name="position"
+            autoComplete="organization-title"
             value={meta.position}
             onChange={set("position")}
             placeholder="e.g. Senior UX Designer"
@@ -134,6 +150,8 @@ export function StepJobMeta({
         <Field label="Company" required>
           <input
             type="text"
+            name="company"
+            autoComplete="organization"
             value={meta.company}
             onChange={set("company")}
             placeholder="e.g. Acme Corp"
@@ -144,6 +162,8 @@ export function StepJobMeta({
         <Field label="Location">
           <input
             type="text"
+            name="location"
+            autoComplete="address-level2"
             value={meta.location}
             onChange={set("location")}
             placeholder="e.g. Calgary, AB (Hybrid)"
@@ -154,6 +174,8 @@ export function StepJobMeta({
         <Field label="Date of Job Posting">
           <input
             type="date"
+            name="date_job_posted"
+            autoComplete="on"
             value={meta.date_job_posted}
             onChange={set("date_job_posted")}
             className={inputClass}
@@ -163,6 +185,8 @@ export function StepJobMeta({
         <Field label="Salary (Annual)">
           <input
             type="number"
+            name="salary_annual"
+            autoComplete="on"
             value={meta.salary_annual}
             onChange={handleAnnualChange}
             placeholder="e.g. 85000"
@@ -173,6 +197,8 @@ export function StepJobMeta({
         <Field label="Salary (Hourly)">
           <input
             type="number"
+            name="salary_hourly"
+            autoComplete="on"
             value={meta.salary_hourly}
             onChange={handleHourlyChange}
             placeholder="e.g. 42.50"
@@ -184,6 +210,8 @@ export function StepJobMeta({
         <Field label="Contact Email (optional)">
           <input
             type="email"
+            name="contact_email"
+            autoComplete="email"
             value={meta.contact_email}
             onChange={set("contact_email")}
             placeholder="hiring@acmecorp.com"

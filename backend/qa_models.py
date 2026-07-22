@@ -44,8 +44,27 @@ class QAAgentResult(BaseModel):
 
 
 class VisualQAResult(BaseModel):
-    passed: bool
-    issues: list[str] = Field(default_factory=list)
+    passed: bool = Field(
+        description=(
+            "True only when no delivery-blocking rendering or reference-fidelity "
+            "defects exist."
+        )
+    )
+    issues: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Blocking defects such as clipped, overlapping, unreadable, missing, "
+            "corrupt, or orphaned content, plus substantial typography, hierarchy, "
+            "spacing, margin, density, or page-balance divergence from the references."
+        ),
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Minor non-blocking polish observations that do not materially change "
+            "readability, hierarchy, page balance, or reference fidelity."
+        ),
+    )
     summary: str = ""
 
 

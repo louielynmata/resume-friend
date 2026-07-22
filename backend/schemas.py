@@ -27,6 +27,7 @@ class ExtractJobMetaResponse(BaseModel):
 
 
 class GenerateRequest(BaseModel):
+    generation_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
     job_description: str
     ai_provider: str        # "claude" | "openai" | "ollama"
     job_type: str           # "design" | "development"
@@ -54,7 +55,15 @@ class GenerateResponse(BaseModel):
     qa_report_path: Optional[str] = None
     qa_issues: list[str] = Field(default_factory=list)
     qa_changes: list[str] = Field(default_factory=list)
+    processing_seconds: float = Field(ge=0)
     message: str
+
+
+class GenerationStatusResponse(BaseModel):
+    generation_id: str
+    stage: str
+    status: str
+    detail: Optional[str] = None
 
 
 class OpenFolderRequest(BaseModel):

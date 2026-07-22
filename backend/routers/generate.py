@@ -1,11 +1,15 @@
 import re
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from time import monotonic, perf_counter
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 
 from ..config import settings
-from ..schemas import GenerateRequest, GenerateResponse
+from ..schemas import GenerateRequest, GenerateResponse, GenerationStatusResponse
 from ..services.ai_service import generate_content
 from ..services.notion_service import log_application
 from ..services.qa_pipeline import (
@@ -19,6 +23,80 @@ router = APIRouter(prefix="/api/generate", tags=["generate"])
 
 _SYSTEM_PROMPT_FILE = "system_prompt.md"
 _SYSTEM_PROMPT_TOKEN_RE = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
+_PROGRESS_TTL_SECONDS = 60 * 60
+_MAX_PROGRESS_RECORDS = 200
+
+
+@dataclass(frozen=True)
+class _GenerationProgress:
+    stage: str
+    status: str
+    detail: str | None
+    updated_at: float
+
+
+_generation_progress: dict[str, _GenerationProgress] = {}
+_current_generation_id: ContextVar[str | None] = ContextVar(
+    "current_generation_id",
+    default=None,
+)
+
+
+def _prune_generation_progress() -> None:
+    cutoff = monotonic() - _PROGRESS_TTL_SECONDS
+    for generation_id, progress in list(_generation_progress.items()):
+        if progress.updated_at < cutoff:
+            _generation_progress.pop(generation_id, None)
+
+    overflow = len(_generation_progress) - _MAX_PROGRESS_RECORDS
+    if overflow > 0:
+        oldest = sorted(
+            _generation_progress,
+            key=lambda generation_id: _generation_progress[generation_id].updated_at,
+        )[:overflow]
+        for generation_id in oldest:
+            _generation_progress.pop(generation_id, None)
+
+
+def _record_generation_progress(
+    stage: str,
+    *,
+    status: str = "running",
+    detail: str | None = None,
+) -> None:
+    generation_id = _current_generation_id.get()
+    if generation_id is None:
+        return
+    _generation_progress[generation_id] = _GenerationProgress(
+        stage=stage,
+        status=status,
+        detail=detail,
+        updated_at=monotonic(),
+    )
+
+
+def _set_generation_stage(stage: str) -> None:
+    _record_generation_progress(stage)
+
+
+def _current_generation_stage(fallback: str) -> str:
+    generation_id = _current_generation_id.get()
+    progress = _generation_progress.get(generation_id or "")
+    return progress.stage if progress is not None else fallback
+
+
+@router.get("/status/{generation_id}", response_model=GenerationStatusResponse)
+def get_generation_status(generation_id: str) -> GenerationStatusResponse:
+    _prune_generation_progress()
+    progress = _generation_progress.get(generation_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Generation status not found.")
+    return GenerationStatusResponse(
+        generation_id=generation_id,
+        stage=progress.stage,
+        status=progress.status,
+        detail=progress.detail,
+    )
 
 
 def _http_error(
@@ -31,6 +109,11 @@ def _http_error(
     hint: str | None = None,
     retryable: bool = False,
 ) -> HTTPException:
+    _record_generation_progress(
+        stage,
+        status="failed",
+        detail=detail or message,
+    )
     return HTTPException(
         status_code=status_code,
         detail={
@@ -167,6 +250,30 @@ def _classify_ai_error(provider: str, exc: Exception) -> tuple[int, str, str, st
 
 @router.post("", response_model=GenerateResponse)
 async def generate(req: GenerateRequest):
+    generation_started_at = perf_counter()
+    generation_id = req.generation_id or uuid4().hex
+    progress_token = _current_generation_id.set(generation_id)
+    _prune_generation_progress()
+    _record_generation_progress("validate_request")
+    try:
+        return await _run_generation(req, generation_started_at)
+    except Exception as exc:
+        progress = _generation_progress.get(generation_id)
+        if progress is None or progress.status == "running":
+            _record_generation_progress(
+                _current_generation_stage("validate_request"),
+                status="failed",
+                detail=str(exc) or "Generation failed.",
+            )
+        raise
+    finally:
+        _current_generation_id.reset(progress_token)
+
+
+async def _run_generation(
+    req: GenerateRequest,
+    generation_started_at: float,
+) -> GenerateResponse:
     if req.ai_provider not in ("claude", "openai", "ollama"):
         raise _http_error(
             400,
@@ -184,6 +291,7 @@ async def generate(req: GenerateRequest):
             detail="job_type must be design or development.",
         )
 
+    _set_generation_stage("load_model_files")
     try:
         resume_file = (
             "design_resume.md" if req.job_type == "design" else "dev_resume.md"
@@ -268,6 +376,7 @@ async def generate(req: GenerateRequest):
 Target Position: {req.position}
 Target Company: {req.company}"""
 
+    _set_generation_stage("call_ai_provider")
     try:
         ai_response = await generate_content(
             req.ai_provider, system_prompt, user_prompt
@@ -320,6 +429,7 @@ Target Company: {req.company}"""
         encoding="utf-8",
     )
 
+    _set_generation_stage("qa_review")
     try:
         draft = parse_document_draft(ai_response)
     except ValueError as exc:
@@ -351,6 +461,8 @@ Target Company: {req.company}"""
             company=req.company,
             position_slug=position_slug,
             output_dir=output_dir,
+            job_type=req.job_type,
+            progress_callback=_set_generation_stage,
         )
         docs = qa_result.docs
         draft = qa_result.draft
@@ -405,11 +517,20 @@ Target Company: {req.company}"""
             ),
         ) from exc
     except Exception as exc:
+        failed_stage = _current_generation_stage("build_documents")
         raise _http_error(
             500,
-            stage="build_documents",
-            code="DOCUMENT_BUILD_FAILED",
-            message="Document generation failed.",
+            stage=failed_stage,
+            code=(
+                "ARTIFACT_VALIDATION_FAILED"
+                if failed_stage == "artifact_validation"
+                else "DOCUMENT_BUILD_FAILED"
+            ),
+            message=(
+                "Generated file validation failed."
+                if failed_stage == "artifact_validation"
+                else "Document generation failed."
+            ),
             detail=str(exc),
         ) from exc
 
@@ -420,6 +541,7 @@ Target Company: {req.company}"""
 
     notion_url = None
     notion_error = None
+    _set_generation_stage("log_notion")
     if (
         qa_report.status != "needs_review"
         and settings.notion_token
@@ -446,7 +568,7 @@ Target Company: {req.company}"""
     elif qa_report.status == "needs_review":
         notion_error = "Not logged because generated files still need manual QA review."
 
-    return GenerateResponse(
+    response = GenerateResponse(
         output_folder=str(output_dir.resolve()),
         resume_docx=docs.get("resume_docx", ""),
         resume_pdf=docs.get("resume_pdf"),
@@ -460,9 +582,12 @@ Target Company: {req.company}"""
         qa_report_path=str(qa_report_path.resolve()),
         qa_issues=[issue.message for issue in qa_report.issues],
         qa_changes=qa_report.changes_made,
+        processing_seconds=round(perf_counter() - generation_started_at, 2),
         message=(
             "Generated with unresolved QA issues; manual review is required"
             if qa_report.status == "needs_review"
             else "Generated and QA-verified successfully"
         ),
     )
+    _record_generation_progress("complete", status="completed")
+    return response

@@ -14,7 +14,11 @@ from .ai_service import generate_structured
 _VISUAL_QA_PROMPT_FILE = "visual_qa_prompt.md"
 
 
-def inspect_artifacts(docs: dict) -> ArtifactQAResult:
+def inspect_artifacts(
+    docs: dict,
+    *,
+    resume_max_pages: int | None = None,
+) -> ArtifactQAResult:
     result = ArtifactQAResult()
     _inspect_docx(docs.get("resume_docx"), "resume", result)
     _inspect_docx(docs.get("cover_letter_docx"), "cover_letter", result)
@@ -22,7 +26,7 @@ def inspect_artifacts(docs: dict) -> ArtifactQAResult:
     result.resume_pages = _inspect_pdf(
         docs.get("resume_pdf"),
         "resume",
-        settings.qa_resume_max_pages,
+        resume_max_pages or settings.qa_resume_max_pages,
         result,
     )
     result.cover_letter_pages = _inspect_pdf(
@@ -73,6 +77,21 @@ async def inspect_artifacts_visually(
                 for index in range(len(pages))
             )
 
+        reference_files = (
+            sorted(settings.reference_path.glob("*.pdf"))
+            if settings.reference_path.exists()
+            else []
+        )
+        for reference_path in reference_files:
+            reference_label = f"Reference: {reference_path.stem}"
+            pages = _render_pdf(reference_path, Path(tmp), reference_label)
+            first_image_number = len(page_labels) + 1
+            image_paths.extend(pages)
+            page_labels.extend(
+                f"Image {first_image_number + index}: {reference_label}, page {index + 1}"
+                for index in range(len(pages))
+            )
+
         if not image_paths:
             return VisualQAResult(
                 passed=True,
@@ -80,7 +99,9 @@ async def inspect_artifacts_visually(
             )
 
         user_prompt = (
-            "Inspect these rendered pages in the listed order.\n"
+            "Inspect these rendered output and reference pages in the listed order. "
+            "The Resume and Cover letter images are delivery candidates. Images "
+            "labelled Reference are visual authorities for comparison.\n"
             + "\n".join(page_labels)
         )
         return await generate_structured(
@@ -250,9 +271,10 @@ def _render_pdf(pdf_path: Path, output_dir: Path, label: str) -> list[Path]:
         ) from exc
 
     rendered: list[Path] = []
+    safe_label = re.sub(r"[^a-z0-9]+", "-", label.casefold()).strip("-")
     with pymupdf.open(pdf_path) as pdf:
         for index, page in enumerate(pdf):
-            output_path = output_dir / f"{label.lower().replace(' ', '-')}-{index + 1}.png"
+            output_path = output_dir / f"{safe_label}-{index + 1}.png"
             page.get_pixmap(dpi=150, alpha=False).save(output_path)
             rendered.append(output_path)
     return rendered

@@ -96,7 +96,9 @@ class VisualArtifactQAServiceTests(unittest.IsolatedAsyncioTestCase):
             resume_pdf = root / "resume.pdf"
             write_pdf(resume_pdf, 2)
             original_temp_dir = settings.qa_temp_dir
+            original_reference_dir = settings.reference_dir
             settings.qa_temp_dir = str(root / "rendered")
+            settings.reference_dir = str(root / "references")
 
             async def verify_images(*args, **kwargs):
                 image_paths = kwargs["image_paths"]
@@ -115,6 +117,41 @@ class VisualArtifactQAServiceTests(unittest.IsolatedAsyncioTestCase):
                     )
             finally:
                 settings.qa_temp_dir = original_temp_dir
+                settings.reference_dir = original_reference_dir
+
+            self.assertTrue(result.passed)
+
+    async def test_visual_qa_includes_reference_pages_and_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resume_pdf = root / "resume.pdf"
+            references = root / "references"
+            references.mkdir()
+            reference_pdf = references / "Design Resume Reference.pdf"
+            write_pdf(resume_pdf, 1)
+            write_pdf(reference_pdf, 2)
+            original_temp_dir = settings.qa_temp_dir
+            original_reference_dir = settings.reference_dir
+            settings.qa_temp_dir = str(root / "rendered")
+            settings.reference_dir = str(references)
+
+            async def verify_reference_context(*args, **kwargs):
+                self.assertEqual(len(kwargs["image_paths"]), 3)
+                self.assertIn("Reference: Design Resume Reference", args[2])
+                return VisualQAResult(passed=True, summary="Matches reference")
+
+            try:
+                with patch(
+                    "backend.services.artifact_qa_service.generate_structured",
+                    new=AsyncMock(side_effect=verify_reference_context),
+                ):
+                    result = await inspect_artifacts_visually(
+                        provider="ollama",
+                        docs={"resume_pdf": str(resume_pdf)},
+                    )
+            finally:
+                settings.qa_temp_dir = original_temp_dir
+                settings.reference_dir = original_reference_dir
 
             self.assertTrue(result.passed)
 
