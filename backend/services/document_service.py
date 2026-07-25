@@ -150,8 +150,6 @@ _CONTACT_CONTENT = re.compile(
     re.IGNORECASE,
 )
 
-_ALLOWED_LOWER = {"and", "or", "of", "the", "by", "in", "with", "to", "a", "&"}
-
 # System-prompt section labels that the AI occasionally echoes — never treat as headers
 _BLOCKED_SECTION_NAMES = frozenset({
     "INSTRUCTIONS", "WRITING STYLE EXAMPLES", "WRITING STYLE",
@@ -167,6 +165,8 @@ _KNOWN_SECTION_NAMES = frozenset({
     "SKILLS",
     "TOOLKIT",
     "WORK EXPERIENCE",
+    "RELATED WORK EXPERIENCES",
+    "OTHER EXPERIENCES",
     "EXPERIENCE",
     "CREATIVE EXPERIENCE",
     "EDUCATION",
@@ -203,26 +203,24 @@ _META_COMMENTARY_PAT = re.compile(
 
 
 def _is_section_header(clean: str) -> bool:
-    """ALL CAPS section header — allows lowercase connectors like 'and'."""
+    """Recognize only approved section names, regardless of source casing."""
     if len(clean) < 3 or "|" in clean or clean.startswith("●"):
         return False
-    if clean.upper() in _KNOWN_SECTION_NAMES:
-        return True
-    if "(" in clean:  # institution/company names have parentheses; section headers don't
+    return clean.upper() in _KNOWN_SECTION_NAMES
+
+
+def _is_standalone_role_title(clean: str) -> bool:
+    if len(clean) < 3 or "|" in clean or "(" in clean:
         return False
     letters = re.sub(r"[^A-Za-z\s]", "", clean).strip()
     if not letters:
         return False
-    if letters.upper() in _BLOCKED_SECTION_NAMES:  # reject system-prompt echo artifacts
+    if letters.upper() in _BLOCKED_SECTION_NAMES:
         return False
     words = letters.split()
-    if len(words) > 5:  # section headers are short; long phrases are company/institution names
+    if len(words) > 8:
         return False
-    return (
-        all(w.isupper() or w.lower() in _ALLOWED_LOWER for w in words)
-        and any(w.isupper() for w in words)
-        and not _DATE_PAT.match(clean)
-    )
+    return all(word.isupper() for word in words)
 
 
 def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
@@ -294,6 +292,16 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
     if _is_section_header(clean):
         return "section", clean
 
+    role_m = re.match(r"^([A-Z][A-Z\s/&,]+?)\s*[-–—]\s*(.+)$", clean)
+    if role_m:
+        role_words = role_m.group(1).strip().split()
+        if role_words and all(
+            word.isupper() for word in role_words if word.isalpha()
+        ):
+            return "role_line", line
+    if _is_standalone_role_title(clean):
+        return "role_title", clean
+
     # ── Bullet points ──────────────────────────────────────────────────────────
     bullet_m = re.match(r"^[●•]\s+(.*)", line)
     if bullet_m:
@@ -312,16 +320,6 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
         if _DATE_PAT.match(first_segment):
             return "date_range", clean
         return "entry", line
-
-    # ── Role-with-date lines: "ROLE TITLE - dates" (Pattern B, after header) ──
-    # Must come after section-header check; those fail because mixed-case dates
-    # break the all-caps requirement.
-    if index > 5:
-        role_m = re.match(r"^([A-Z][A-Z\s/&,]+?)\s*[-–—]\s*(.+)$", clean)
-        if role_m:
-            role_words = role_m.group(1).strip().split()
-            if role_words and all(w.isupper() for w in role_words if w.isalpha()):
-                return "role_line", line
 
     # ── Standalone date-range lines (after header block) ──────────────────────
     if index > 5 and _DATE_PAT.match(clean):
@@ -549,12 +547,16 @@ def _build_resume_docx(content: str, path: Path) -> Path:
                 value,
                 keep_with_next=next_kind in {
                     "entry",
+                    "role_title",
                     "role_line",
                     "date_range",
                     "bullet",
                     "body",
                 },
             )
+
+        elif kind == "role_title":
+            _add_role_title(doc, value)
 
         elif kind == "role_line":
             _add_role_with_date(doc, value)
@@ -620,6 +622,15 @@ def _add_role_with_date(doc: Document, text: str) -> None:
         run2.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
     else:
         _add_inline_runs(p, text, size=_RESUME_BODY_SIZE)
+
+
+def _add_role_title(doc: Document, text: str) -> None:
+    p = doc.add_paragraph()
+    _set_para_spacing(p, before=1, after=0)
+    _set_pagination(p, keep_with_next=True, keep_together=True)
+    run = p.add_run(_strip_bold(text).upper())
+    run.bold = True
+    _set_run_font(run, size=_RESUME_BODY_SIZE)
 
 
 def _add_entry_header(

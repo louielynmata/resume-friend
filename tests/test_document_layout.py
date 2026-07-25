@@ -185,6 +185,54 @@ Example Studio | Calgary
             self.assertTrue(all(run.bold for run in summary_heading.runs))
             self.assertTrue(all(run.bold for run in work_heading.runs))
 
+    def test_resume_matches_reference_work_section_and_entry_hierarchy(self):
+        content = """NAME: Alex Example
+ROLE: Software Developer
+CONTACT: alex@example.com
+
+PROFESSIONAL SUMMARY
+Developer focused on reliable customer workflows.
+
+---
+
+Related Work Experiences
+Example Labs | Product Engineering
+SOFTWARE ENGINEER - 2025
+\u25cf Built reliable customer workflows.
+
+Other Experiences
+Example Retail | Calgary
+SALESPERSON - 2024 - Present
+\u25cf Supported customers.
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(content, path)
+            document = Document(path)
+
+            paragraph_text = [paragraph.text for paragraph in document.paragraphs]
+            self.assertIn("RELATED WORK EXPERIENCES", paragraph_text)
+            self.assertIn("OTHER EXPERIENCES", paragraph_text)
+
+            related_heading = paragraph_starting_with(
+                document,
+                "RELATED WORK EXPERIENCES",
+            )
+            other_heading = paragraph_starting_with(
+                document,
+                "OTHER EXPERIENCES",
+            )
+            company = paragraph_starting_with(document, "Example Labs")
+            position = paragraph_starting_with(document, "SOFTWARE ENGINEER")
+
+            self.assertTrue(all(run.bold for run in related_heading.runs))
+            self.assertTrue(all(run.bold for run in other_heading.runs))
+            self.assertEqual(company.runs[0].text, "Example Labs")
+            self.assertTrue(company.runs[0].bold)
+            self.assertNotEqual(company.runs[0].text, company.runs[0].text.upper())
+            self.assertEqual(position.runs[0].text, "SOFTWARE ENGINEER")
+            self.assertTrue(position.runs[0].bold)
+
     def test_resume_hyperlinks_bare_website_without_linking_email_domain(self):
         content = """NAME: Alex Example
 ROLE: Product Designer

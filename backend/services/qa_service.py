@@ -45,6 +45,8 @@ _RESUME_SECTION_NAMES = frozenset(
         "SKILLS",
         "TOOLKIT",
         "WORK EXPERIENCE",
+        "RELATED WORK EXPERIENCES",
+        "OTHER EXPERIENCES",
         "EXPERIENCE",
         "CREATIVE EXPERIENCE",
         "EDUCATION",
@@ -500,6 +502,40 @@ def validate_draft(
             + ", ".join(missing_ai_tools),
         )
 
+    if source_ai_tools and _resume_has_ai_content_outside_category(
+        resume,
+        source_ai_tools,
+    ):
+        add(
+            "RESUME_AI_CONTENT_OUTSIDE_TOOLS_CATEGORY",
+            "structure",
+            QASeverity.ERROR,
+            "resume",
+            "Keep AI and LLM content only in the compact "
+            "`CATEGORY: AI Tools | ...` line. Remove it from the summary, "
+            "experience, projects, and other resume prose.",
+        )
+
+    generated_sections = {
+        _plain_text(line).upper()
+        for line in resume.splitlines()
+        if line.strip()
+    }
+    missing_experience_sections = [
+        section
+        for section in source_requirements["experience_sections"]
+        if section not in generated_sections
+    ]
+    if missing_experience_sections:
+        add(
+            "RESUME_SOURCE_EXPERIENCE_SECTIONS_MISSING",
+            "structure",
+            QASeverity.ERROR,
+            "resume",
+            "Preserve the source work grouping with these exact section "
+            "headings: " + ", ".join(missing_experience_sections),
+        )
+
     malformed_role_lines = _malformed_required_role_lines(
         resume,
         source_requirements["roles"],
@@ -793,6 +829,22 @@ def _markdown_subsection_items(text: str, name: str) -> list[str]:
     return items
 
 
+def _required_experience_sections(source_resume: str) -> list[str]:
+    required: list[str] = []
+    for line in source_resume.splitlines():
+        heading = re.match(r"^##\s+(.+?)\s*$", line.strip())
+        if heading is None:
+            continue
+        normalized = _normalized_match_text(heading.group(1))
+        if normalized in {"related work experience", "related work experiences"}:
+            if "RELATED WORK EXPERIENCES" not in required:
+                required.append("RELATED WORK EXPERIENCES")
+        elif normalized in {"other experience", "other experiences"}:
+            if "OTHER EXPERIENCES" not in required:
+                required.append("OTHER EXPERIENCES")
+    return required
+
+
 def _extract_source_resume_requirements(source_resume: str) -> dict[str, object]:
     work_lines = _markdown_section_lines(
         source_resume,
@@ -801,6 +853,8 @@ def _extract_source_resume_requirements(source_resume: str) -> dict[str, object]
             "Work Experiences",
             "Related Work Experience",
             "Related Work Experiences",
+            "Other Experience",
+            "Other Experiences",
             "Creative Experience",
         },
     )
@@ -851,6 +905,7 @@ def _extract_source_resume_requirements(source_resume: str) -> dict[str, object]
         "years": required_years,
         "achievements": achievements,
         "ai_tools": _markdown_subsection_items(source_resume, "AI Tools"),
+        "experience_sections": _required_experience_sections(source_resume),
     }
 
 
@@ -1049,15 +1104,27 @@ def _normalize_source_role_entries(
         if not role_normalized:
             continue
 
-        # A canonical uppercase role/date line already exists.
-        if not _malformed_required_role_lines("\n".join(lines), [role]):
-            continue
-
         for index, line in enumerate(lines):
             parts = [part.strip() for part in line.split("|", 1)]
             if len(parts) != 2:
                 continue
             entity, possible_role = parts
+            inline_role_match = re.match(
+                r"^(.+?)\s+[-\u2013\u2014]\s+(.+)$",
+                _plain_text(possible_role).strip(),
+            )
+            if inline_role_match is not None:
+                generated_role, dates = inline_role_match.groups()
+                if (
+                    _normalized_match_text(generated_role) == role_normalized
+                    and _line_has_resume_date(dates)
+                ):
+                    lines[index:index + 1] = [
+                        entity,
+                        f"{role.upper()} - {dates.strip()}",
+                    ]
+                    changed = True
+                    break
             if _normalized_match_text(possible_role) != role_normalized:
                 continue
 
@@ -1203,6 +1270,50 @@ def _resume_category_values(text: str, label: str) -> list[str]:
                 if value.strip()
             ]
     return []
+
+
+def _resume_has_ai_content_outside_category(
+    text: str,
+    source_ai_tools: object,
+) -> bool:
+    content_lines: list[str] = []
+    for line in text.splitlines():
+        category = re.match(
+            r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
+            line.strip(),
+        )
+        if (
+            category
+            and _normalized_match_text(category.group(1)) == "ai tools"
+        ):
+            continue
+        if _plain_text(line).upper() == "AI TOOLS":
+            continue
+        content_lines.append(line)
+
+    content = "\n".join(content_lines)
+    if re.search(
+        r"(?i)(?<![A-Za-z0-9])(?:AI(?:-assisted)?|"
+        r"artificial intelligence|(?:local\s+)?LLMs?)(?![A-Za-z0-9])",
+        content,
+    ):
+        return True
+
+    terms: list[str] = []
+    for tool in source_ai_tools if isinstance(source_ai_tools, list) else []:
+        for term in re.split(r"\s+(?:and|&)\s+", tool, flags=re.IGNORECASE):
+            clean = term.strip()
+            if clean and clean.casefold() not in {
+                existing.casefold() for existing in terms
+            }:
+                terms.append(clean)
+    return any(
+        re.search(
+            rf"(?i)(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])",
+            content,
+        )
+        for term in terms
+    )
 
 
 def _restore_source_ai_tools(

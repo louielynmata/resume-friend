@@ -58,14 +58,14 @@ RESUME FORMAT RULES - non-negotiable:
 
 APPROVED SECTION NAMES - use only applicable names from this list:
 Professional Summary, Core Skills, Design Skills, Technical Skills, Creative Skills, Skills, Toolkit,
-Work Experience, Experience, Creative Experience,
+Work Experience, Related Work Experiences, Other Experiences, Experience, Creative Experience,
 Education, Educational Attainment,
 Certifications, Certifications and Awards, Achievements, Awards and Achievements,
 Projects, Notable Projects, Notable Clients
 
 SECTION RULES:
 - Education is always a separate section.
-- Use one work experience section. Put less relevant roles at the end rather than creating another experience section.
+- DEVELOPMENT resumes must preserve the source grouping as `RELATED WORK EXPERIENCES` and `OTHER EXPERIENCES`. Do not merge these into one generic experience section. Other resume tracks may use one applicable work experience section.
 - Every employer in the source resume must remain present. Reduce less relevant bullets if needed, but do not drop the employer, role, or dates.
 - Preserve every date segment attached to a role. When a source role contains both full-time and freelance ranges, keep both ranges on that role line; never retain only the first range.
 - Preserve every named award and achievement word-for-word from the source. Do not shorten, rephrase, or omit one.
@@ -81,7 +81,7 @@ SKILL AND TOOL CATEGORY FORMAT:
 - Do not prefix CATEGORY lines or category names with a bullet.
 - Separate category values with a comma followed by one space. Never use semicolons as skill or tool separators.
 - Use two to four categories. Keep each category self-contained so the builder can place it in the compact reference-style grid.
-- For DEVELOPMENT resumes, if the source resume has an `### AI Tools` subsection, always include `CATEGORY: AI Tools | ...` and copy every listed tool exactly. Do not infer or add tools.
+- For DEVELOPMENT resumes, if the source resume has an `### AI Tools` subsection, include exactly one `CATEGORY: AI Tools | ...` line and copy every listed tool exactly. Do not infer or add tools. This category is the only place AI or LLM content may appear in the resume; do not repeat it in the summary, experience, projects, or other prose.
 
 WORK ENTRY FORMAT - use only these two patterns:
 
@@ -105,6 +105,7 @@ Line 2: Degree or Credential (verified achievement and GPA when relevant)
 RULES FOR ENTRIES:
 - Give each role title its own line.
 - Write role titles in all caps followed by a dash and verified dates on the same line.
+- Keep company and entity names in their source casing. The document builder renders both the company and role in bold, but only the role title is all caps.
 - Never merge a role title into a company/context line. In particular, convert a source entry written as role heading + entity + website + dates into `Entity | website` followed by `ROLE TITLE IN ALL CAPS - verified dates`.
 - Do not add a standalone descriptive subtitle before the company or role.
 - Use a pipe only in contact lines, company/context lines for Pattern B, and institution/year lines.

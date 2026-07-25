@@ -151,6 +151,75 @@ class QAServiceTests(unittest.TestCase):
             {issue.code for issue in issues},
         )
 
+    def test_validator_rejects_ai_tool_content_outside_ai_tools_category(self):
+        source_resume = f"""{SOURCE_RESUME}
+
+## Toolkit and Technical Skills
+
+### AI Tools
+- Pair Pilot
+- Local Assistant
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "Product designer focused on accessible digital experiences.",
+            "Product designer using Pair Pilot for accessible digital experiences.",
+        ).replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TECHNICAL SKILLS\n"
+            "CATEGORY: AI Tools | Pair Pilot, Local Assistant\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+        )
+
+        self.assertIn(
+            "RESUME_AI_CONTENT_OUTSIDE_TOOLS_CATEGORY",
+            {issue.code for issue in issues},
+        )
+
+    def test_validator_requires_related_and_other_experience_sections(self):
+        source_resume = """# Alex Example
+
+## Related Work Experience
+
+### Software Engineer
+**Example Labs**
+**Software Engineer:** 2025
+
+## Other Experience
+
+### Salesperson
+**Example Retail**
+**Salesperson:** 2024 - Present
+"""
+        draft = valid_draft()
+        draft.resume += """
+
+Example Labs
+SOFTWARE ENGINEER - 2025
+
+Example Retail
+SALESPERSON - 2024 - Present
+"""
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+        )
+
+        self.assertIn(
+            "RESUME_SOURCE_EXPERIENCE_SECTIONS_MISSING",
+            {issue.code for issue in issues},
+        )
+
     def test_validator_requires_personal_header_and_closing_blocks(self):
         instructions = """RESUME HEADER - REQUIRED EXACT VALUES:
 CONTACT: alex@example.com
@@ -408,6 +477,92 @@ alex.example.com | May 2012 - 2021; Oct 2024 - 2026 (Freelance)
         self.assertNotIn(
             "RESUME_ROLE_FORMAT_INVALID",
             {issue.code for issue in issues},
+        )
+
+    def test_safe_fixes_split_company_from_inline_role_and_dates(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Senior Art Director
+**Ant Savvy Creatives**
+**Senior Art Director:** April 2017 - April 2018, Full-time | 2019 - 2020, Freelance
+"""
+        draft = valid_draft()
+        draft.resume += """
+
+Ant Savvy Creatives | SENIOR ART DIRECTOR - April 2017 - April 2018, Full-time; 2019 - 2020, Freelance
+● Led verified creative work.
+"""
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+        )
+        issues = validate_draft(
+            fixed,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+        )
+
+        self.assertIn(
+            "\nAnt Savvy Creatives\n"
+            "SENIOR ART DIRECTOR - April 2017 - April 2018, Full-time; "
+            "2019 - 2020, Freelance\n",
+            fixed.resume,
+        )
+        self.assertNotIn(
+            "Ant Savvy Creatives | SENIOR ART DIRECTOR",
+            fixed.resume,
+        )
+        self.assertNotIn(
+            "RESUME_ROLE_FORMAT_INVALID",
+            {issue.code for issue in issues},
+        )
+        self.assertIn("Normalized verified role titles", " ".join(changes))
+
+    def test_safe_fixes_split_inline_role_when_longer_role_also_matches(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director
+**Ant Savvy Creatives**
+**Creative Director:** April 2021 - October 2024
+
+### Freelance Multimedia Designer & Creative Director
+**Alex Example**
+May 2012 - 2021
+"""
+        draft = valid_draft()
+        draft.resume += """
+
+Ant Savvy Creatives | CREATIVE DIRECTOR - April 2021 - October 2024
+● Led verified campaign work.
+
+Alex Example
+FREELANCE MULTIMEDIA DESIGNER & CREATIVE DIRECTOR - May 2012 - 2021
+● Delivered verified multimedia work.
+"""
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+        )
+
+        self.assertIn(
+            "\nAnt Savvy Creatives\n"
+            "CREATIVE DIRECTOR - April 2021 - October 2024\n",
+            fixed.resume,
+        )
+        self.assertNotIn(
+            "Ant Savvy Creatives | CREATIVE DIRECTOR",
+            fixed.resume,
         )
 
     def test_safe_fixes_repair_category_dates_and_cover_letter_dash(self):
