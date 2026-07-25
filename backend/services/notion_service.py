@@ -23,8 +23,8 @@ async def log_application(
         "Company": {"title": [{"text": {"content": company}}]},
         "Title": {"rich_text": [{"text": {"content": folder_name}}]},
         "Position": {"rich_text": [{"text": {"content": position}}]},
-        # Status is multi_select in this database
-        "Status": {"multi_select": [{"name": "Applied"}]},
+        # Status is a single-select property in the tracking database.
+        "Status": {"select": {"name": "Applied"}},
         "Sent Resume": {"checkbox": False},
         "AI Resume": {"checkbox": bool(ai_used)},
         "ATS Use": {"checkbox": True},

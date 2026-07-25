@@ -81,6 +81,7 @@ SKILL AND TOOL CATEGORY FORMAT:
 - Do not prefix CATEGORY lines or category names with a bullet.
 - Separate category values with a comma followed by one space. Never use semicolons as skill or tool separators.
 - Use two to four categories. Keep each category self-contained so the builder can place it in the compact reference-style grid.
+- For DEVELOPMENT resumes, if the source resume has an `### AI Tools` subsection, always include `CATEGORY: AI Tools | ...` and copy every listed tool exactly. Do not infer or add tools.
 
 WORK ENTRY FORMAT - use only these two patterns:
 

@@ -20,5 +20,6 @@ Rules:
 15. Preserve every date segment for each specific role and institution. Do not treat a year elsewhere in the resume as a substitute. Retain both full-time and freelance ranges when the source contains both.
 16. Resolve every deterministic QA finding. Independently look for additional grammar, structure, reference-format, and page-balance problems. Before returning, search the resume, cover letter, and analysis for U+2014 em dashes and rewrite every occurrence.
 17. Preserve a valid `ATS_SCORE: 0-100` integer line. If it is missing, assess the corrected package and add it. Otherwise, update the analysis only when a correction changes keyword placement or a statement in the analysis. Do not inflate the ATS score, claim a required source item was intentionally removed, or claim malformed bullet characters were corrected unless the returned resume actually contains U+25CF.
+18. For DEVELOPMENT resumes, when the source resume contains an `### AI Tools` subsection, preserve every listed tool in one exact `CATEGORY: AI Tools | comma-separated values` builder line. Do not replace, infer, or omit those source-backed tools.
 
 Return only the schema-requested fields. The resume, cover_letter, and analysis fields must contain complete replacement bodies without XML wrapper tags.

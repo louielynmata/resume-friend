@@ -158,6 +158,28 @@ _BLOCKED_SECTION_NAMES = frozenset({
     "TRANSCRIPT", "ANALYSIS",
 })
 
+_KNOWN_SECTION_NAMES = frozenset({
+    "PROFESSIONAL SUMMARY",
+    "CORE SKILLS",
+    "DESIGN SKILLS",
+    "TECHNICAL SKILLS",
+    "CREATIVE SKILLS",
+    "SKILLS",
+    "TOOLKIT",
+    "WORK EXPERIENCE",
+    "EXPERIENCE",
+    "CREATIVE EXPERIENCE",
+    "EDUCATION",
+    "EDUCATIONAL ATTAINMENT",
+    "CERTIFICATIONS",
+    "CERTIFICATIONS AND AWARDS",
+    "ACHIEVEMENTS",
+    "AWARDS AND ACHIEVEMENTS",
+    "PROJECTS",
+    "NOTABLE PROJECTS",
+    "NOTABLE CLIENTS",
+})
+
 # Lines matching this pattern are system-prompt artifacts or AI meta-commentary — drop them entirely
 _ARTIFACT_PAT = re.compile(
     r"^(instructions|writing\s+style\s+examples?|transcript|analysis)\s*[-─═]*$"
@@ -184,6 +206,8 @@ def _is_section_header(clean: str) -> bool:
     """ALL CAPS section header — allows lowercase connectors like 'and'."""
     if len(clean) < 3 or "|" in clean or clean.startswith("●"):
         return False
+    if clean.upper() in _KNOWN_SECTION_NAMES:
+        return True
     if "(" in clean:  # institution/company names have parentheses; section headers don't
         return False
     letters = re.sub(r"[^A-Za-z\s]", "", clean).strip()

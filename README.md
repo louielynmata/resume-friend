@@ -244,21 +244,22 @@ To have job applications logged automatically:
 1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations) → **New Integration** → copy the token into `NOTION_TOKEN`
 2. Create a new full-page **Database** in Notion with these **exact** property names and types:
 
-| Property name      | Type     | Notes                                                   |
-| ------------------ | -------- | ------------------------------------------------------- |
-| Title              | Title    | The default Notion title column — keep the name `Title` |
-| Company            | Text     |                                                         |
-| Position           | Text     |                                                         |
-| Status             | Select   | Add option: `Applied`                                   |
-| Location           | Text     | Optional                                                |
-| Sent Resume        | Checkbox |                                                         |
-| AI Resume          | Checkbox |                                                         |
-| ATS Use            | Checkbox |                                                         |
-| Folder Name        | Text     |                                                         |
-| Salary (Annual)    | Number   | Optional                                                |
-| Salary (By Hour)   | Number   | Optional                                                |
-| Date of Submission | Date     |                                                         |
-| Contact            | Email    | Optional                                                |
+| Property name       | Type     | Notes                                              |
+| ------------------- | -------- | -------------------------------------------------- |
+| Company             | Title    | The database title column; keep the name `Company` |
+| Title               | Text     | Generated output-folder title                      |
+| Position            | Text     |                                                    |
+| Status              | Select   | Add option: `Applied`                              |
+| Location            | Select   | Optional                                           |
+| Sent Resume         | Checkbox |                                                    |
+| AI Resume           | Checkbox |                                                    |
+| ATS Use             | Checkbox |                                                    |
+| Folder Name         | Text     |                                                    |
+| Salary (Annual)     | Number   | Optional                                           |
+| Salary (By Hour)    | Number   | Optional                                           |
+| Date of Submission  | Date     |                                                    |
+| Date of Job Posting | Date     | Optional                                           |
+| Contact             | Email    | Optional                                           |
 
 > **Property names are case-sensitive and must match exactly** — including spaces and parentheses. Run `GET /api/notion/test` (with the backend running) to check your database against these requirements and see any mismatches.
 

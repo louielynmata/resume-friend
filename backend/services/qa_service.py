@@ -188,6 +188,17 @@ def apply_safe_deterministic_fixes(
             "builder markers."
         )
 
+    if source_resume.strip():
+        fixed.resume, ai_tools_changed = _restore_source_ai_tools(
+            fixed.resume,
+            source_resume,
+        )
+        if ai_tools_changed:
+            changes.append(
+                "Restored the source-backed AI tools category for the "
+                "development resume."
+            )
+
     dash_replacements = 0
     fixed.resume, resume_dashes = _normalize_em_dashes(fixed.resume)
     fixed.cover_letter, cover_dashes = _normalize_em_dashes(fixed.cover_letter)
@@ -468,6 +479,27 @@ def validate_draft(
             + ", ".join(missing_achievements),
         )
 
+    source_ai_tools = source_requirements["ai_tools"]
+    generated_ai_tools = _resume_category_values(resume, "AI Tools")
+    generated_ai_tools_normalized = {
+        _normalized_match_text(tool) for tool in generated_ai_tools
+    }
+    missing_ai_tools = [
+        tool
+        for tool in source_ai_tools
+        if _normalized_match_text(tool) not in generated_ai_tools_normalized
+    ]
+    if missing_ai_tools:
+        add(
+            "RESUME_SOURCE_AI_TOOLS_MISSING",
+            "truthfulness",
+            QASeverity.ERROR,
+            "resume",
+            "The development resume must keep every tool from the source "
+            "`AI Tools` subsection in a `CATEGORY: AI Tools | ...` line: "
+            + ", ".join(missing_ai_tools),
+        )
+
     malformed_role_lines = _malformed_required_role_lines(
         resume,
         source_requirements["roles"],
@@ -725,6 +757,42 @@ def _markdown_section_lines(text: str, names: set[str]) -> list[str]:
     return lines
 
 
+def _markdown_subsection_items(text: str, name: str) -> list[str]:
+    items: list[str] = []
+    active = False
+    active_level = 0
+    expected = _normalized_match_text(name)
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        heading = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if heading:
+            level = len(heading.group(1))
+            if active and level <= active_level:
+                break
+            if _normalized_match_text(heading.group(2)) == expected:
+                active = True
+                active_level = level
+            continue
+        if not active:
+            continue
+
+        bullet = re.match(
+            r"^\s*(?:[-+*]|\u25cf|\u2022)\s+(.+?)\s*$",
+            raw_line,
+        )
+        if bullet is None:
+            continue
+        item = _plain_text(bullet.group(1)).rstrip(".").strip()
+        normalized_item = _normalized_match_text(item)
+        if item and normalized_item not in {
+            _normalized_match_text(existing) for existing in items
+        }:
+            items.append(item)
+
+    return items
+
+
 def _extract_source_resume_requirements(source_resume: str) -> dict[str, object]:
     work_lines = _markdown_section_lines(
         source_resume,
@@ -782,6 +850,7 @@ def _extract_source_resume_requirements(source_resume: str) -> dict[str, object]
         "employers": employers,
         "years": required_years,
         "achievements": achievements,
+        "ai_tools": _markdown_subsection_items(source_resume, "AI Tools"),
     }
 
 
@@ -1118,6 +1187,74 @@ def _normalize_category_values(raw_values: str) -> str:
         for value in re.split(r"\s*[;,|]\s*", raw_values)
     ]
     return ", ".join(value for value in values if value)
+
+
+def _resume_category_values(text: str, label: str) -> list[str]:
+    expected = _normalized_match_text(label)
+    for line in text.splitlines():
+        match = re.match(
+            r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
+            line.strip(),
+        )
+        if match and _normalized_match_text(match.group(1)) == expected:
+            return [
+                value.strip()
+                for value in match.group(2).split(",")
+                if value.strip()
+            ]
+    return []
+
+
+def _restore_source_ai_tools(
+    text: str,
+    source_resume: str,
+) -> tuple[str, bool]:
+    tools = _markdown_subsection_items(source_resume, "AI Tools")
+    if not tools:
+        return text.strip(), False
+
+    desired = f"CATEGORY: AI Tools | {', '.join(tools)}"
+    lines = text.strip().splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(
+            r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
+            line.strip(),
+        )
+        if match and _normalized_match_text(match.group(1)) == "ai tools":
+            if line.strip() == desired:
+                return text.strip(), False
+            lines[index] = desired
+            return "\n".join(lines).strip(), True
+
+    preferred_sections = (
+        "TECHNICAL SKILLS",
+        "TOOLKIT",
+        "CORE SKILLS",
+        "SKILLS",
+    )
+    section_index = next(
+        (
+            index
+            for section in preferred_sections
+            for index, line in enumerate(lines)
+            if _plain_text(line).upper() == section
+        ),
+        None,
+    )
+    if section_index is not None:
+        end = section_index + 1
+        while end < len(lines):
+            candidate = lines[end].strip()
+            candidate_section = _plain_text(candidate).upper()
+            if candidate == "---" or candidate_section in _RESUME_SECTION_NAMES:
+                break
+            end += 1
+        while end > section_index + 1 and not lines[end - 1].strip():
+            end -= 1
+        lines.insert(end, desired)
+        return "\n".join(lines).strip(), True
+
+    return text.strip(), False
 
 
 def _consolidate_resume_categories(text: str) -> tuple[str, bool]:

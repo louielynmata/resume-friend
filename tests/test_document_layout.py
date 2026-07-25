@@ -150,6 +150,41 @@ CATEGORY: Collaboration | stakeholder workshops, presentations
             self.assertNotIn(";", document.tables[0].cell(0, 0).text)
             self.assertIn("PAGE", document.sections[0].footer._element.xml)
 
+    def test_resume_renders_approved_title_case_section_headers_uppercase_and_bold(self):
+        content = """NAME: Alex Example
+ROLE: Software Developer
+CONTACT: alex@example.com
+
+Professional Summary
+Developer focused on reliable customer workflows.
+
+---
+
+Work Experience
+SOFTWARE DEVELOPER - 2020 - Present
+Example Studio | Calgary
+\u25cf Built reliable customer workflows.
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(content, path)
+            document = Document(path)
+
+            paragraph_text = [paragraph.text for paragraph in document.paragraphs]
+            self.assertIn("PROFESSIONAL SUMMARY", paragraph_text)
+            self.assertIn("WORK EXPERIENCE", paragraph_text)
+            summary_heading = paragraph_starting_with(
+                document,
+                "PROFESSIONAL SUMMARY",
+            )
+            work_heading = paragraph_starting_with(
+                document,
+                "WORK EXPERIENCE",
+            )
+
+            self.assertTrue(all(run.bold for run in summary_heading.runs))
+            self.assertTrue(all(run.bold for run in work_heading.runs))
+
     def test_resume_hyperlinks_bare_website_without_linking_email_domain(self):
         content = """NAME: Alex Example
 ROLE: Product Designer

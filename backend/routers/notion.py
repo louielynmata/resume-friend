@@ -7,7 +7,7 @@ REQUIRED_PROPERTIES = {
     "Company": "title",          # Company is the Notion title/Name column
     "Title": "rich_text",        # Title is a plain text column
     "Position": "rich_text",
-    "Status": "multi_select",    # multi_select, not select
+    "Status": "select",
     "Sent Resume": "checkbox",
     "AI Resume": "checkbox",
     "ATS Use": "checkbox",

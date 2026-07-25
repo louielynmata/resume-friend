@@ -129,6 +129,28 @@ class QAServiceTests(unittest.TestCase):
             {issue.code for issue in issues},
         )
 
+    def test_validator_rejects_missing_source_backed_ai_tools(self):
+        source_resume = """# Alex Example
+
+## Toolkit and Technical Skills
+
+### AI Tools
+- Pair Pilot
+- Local Assistant
+"""
+
+        issues = validate_draft(
+            valid_draft(),
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+        )
+
+        self.assertIn(
+            "RESUME_SOURCE_AI_TOOLS_MISSING",
+            {issue.code for issue in issues},
+        )
+
     def test_validator_requires_personal_header_and_closing_blocks(self):
         instructions = """RESUME HEADER - REQUIRED EXACT VALUES:
 CONTACT: alex@example.com
@@ -489,6 +511,47 @@ Graduated with honors
         self.assertIn("CATEGORY builder markers", " ".join(changes))
         self.assertIn("Restored verified role titles", " ".join(changes))
         self.assertIn("prohibited em dash", " ".join(changes))
+        self.assertEqual(fixed_again, fixed)
+        self.assertEqual(second_changes, [])
+
+    def test_safe_fixes_restore_source_backed_ai_tools_category(self):
+        source_resume = """# Alex Example
+
+## Toolkit and Technical Skills
+
+### Languages
+- Python
+
+### AI Tools
+- Pair Pilot
+- Local Assistant
+
+## Work Experience
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TECHNICAL SKILLS\n"
+            "CATEGORY: Languages | Python\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+        )
+        fixed_again, second_changes = apply_safe_deterministic_fixes(
+            fixed,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+        )
+
+        self.assertIn(
+            "CATEGORY: AI Tools | Pair Pilot, Local Assistant",
+            fixed.resume,
+        )
+        self.assertIn("source-backed AI tools", " ".join(changes))
         self.assertEqual(fixed_again, fixed)
         self.assertEqual(second_changes, [])
 
