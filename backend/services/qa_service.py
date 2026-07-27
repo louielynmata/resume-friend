@@ -1085,7 +1085,7 @@ def _normalize_source_role_entries(
     text: str,
     source_resume: str,
 ) -> tuple[str, bool]:
-    """Repair the common `entity | role` plus `context | dates` model rewrite.
+    """Repair common model rewrites of verified role, entity, and date lines.
 
     The source role and the dates are already verified. This only moves them back
     into the builder's canonical two-line shape; it does not infer new content.
@@ -1105,6 +1105,84 @@ def _normalize_source_role_entries(
             continue
 
         for index, line in enumerate(lines):
+            clean_line = _plain_text(line).strip()
+            if _normalized_match_text(clean_line) == role_normalized:
+                company_index = next(
+                    (
+                        candidate
+                        for candidate in range(index + 1, len(lines))
+                        if lines[candidate].strip()
+                    ),
+                    None,
+                )
+                if company_index is not None:
+                    company_line = _plain_text(lines[company_index]).strip()
+                    company_parts = [
+                        part.strip() for part in company_line.split("|", 1)
+                    ]
+                    company = company_line
+                    dates = ""
+                    end_index = company_index
+                    if (
+                        len(company_parts) == 2
+                        and _line_has_resume_date(company_parts[1])
+                    ):
+                        company, dates = company_parts
+                    elif not _line_has_resume_date(company_line):
+                        date_index = next(
+                            (
+                                candidate
+                                for candidate in range(
+                                    company_index + 1,
+                                    len(lines),
+                                )
+                                if lines[candidate].strip()
+                            ),
+                            None,
+                        )
+                        if date_index is not None:
+                            candidate_dates = _plain_text(
+                                lines[date_index]
+                            ).strip()
+                            if _line_has_resume_date(candidate_dates):
+                                dates = candidate_dates
+                                end_index = date_index
+                    if dates:
+                        lines[index:end_index + 1] = [
+                            company,
+                            f"{role.upper()} - {dates}",
+                        ]
+                        changed = True
+                        break
+
+            role_company_match = re.match(
+                r"^(.+?)\s+[-\u2013\u2014]\s+(.+)$",
+                clean_line,
+            )
+            if role_company_match is not None:
+                generated_role, company_line = role_company_match.groups()
+                next_index = next(
+                    (
+                        candidate
+                        for candidate in range(index + 1, len(lines))
+                        if lines[candidate].strip()
+                    ),
+                    None,
+                )
+                if (
+                    _normalized_match_text(generated_role) == role_normalized
+                    and not _line_has_resume_date(company_line)
+                    and next_index is not None
+                ):
+                    dates = _plain_text(lines[next_index]).strip()
+                    if _line_has_resume_date(dates):
+                        lines[index:next_index + 1] = [
+                            company_line.strip(),
+                            f"{role.upper()} - {dates}",
+                        ]
+                        changed = True
+                        break
+
             parts = [part.strip() for part in line.split("|", 1)]
             if len(parts) != 2:
                 continue
@@ -1553,6 +1631,8 @@ def _extract_source_role_dates(source_resume: str) -> list[tuple[str, str]]:
             "Work Experiences",
             "Related Work Experience",
             "Related Work Experiences",
+            "Other Experience",
+            "Other Experiences",
             "Creative Experience",
         },
     )

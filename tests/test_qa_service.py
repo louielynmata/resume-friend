@@ -565,6 +565,115 @@ FREELANCE MULTIMEDIA DESIGNER & CREATIVE DIRECTOR - May 2012 - 2021
             fixed.resume,
         )
 
+    def test_safe_fixes_repair_role_company_line_with_dates_below(self):
+        source_resume = """# Alex Example
+
+## Other Experiences
+
+### Salesperson
+**Club Monaco - Upscale Retail in Canada**
+Nov 2024 - Present, Part-time
+"""
+        draft = valid_draft()
+        draft.resume += """
+
+OTHER EXPERIENCES
+SALESPERSON - Club Monaco | Upscale Retail in Canada
+Dec 2024 - Present, Part-time
+● Delivered personalized customer recommendations.
+"""
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+        )
+        issues = validate_draft(
+            fixed,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+        )
+
+        self.assertIn(
+            "\nClub Monaco | Upscale Retail in Canada\n"
+            "SALESPERSON - Nov 2024 - Present, Part-time\n"
+            "● Delivered personalized customer recommendations.",
+            fixed.resume,
+        )
+        self.assertNotIn(
+            "SALESPERSON - Club Monaco",
+            fixed.resume,
+        )
+        self.assertNotIn(
+            "RESUME_ROLE_FORMAT_INVALID",
+            {issue.code for issue in issues},
+        )
+        self.assertIn("Normalized verified role titles", " ".join(changes))
+
+    def test_safe_fixes_repair_retained_standalone_role_layouts(self):
+        source_resume = """# Alex Example
+
+## Related Work Experiences
+
+### Software Engineering Intern
+**Newton Crypto Canada**
+Summer 2025 Co-op / May 2025 – Aug 2025
+
+## Other Experiences
+
+### Salesperson
+**Club Monaco — Upscale Retail in Canada**
+Nov 2024 – Present, Part-time
+"""
+        draft = valid_draft()
+        draft.resume += """
+
+RELATED WORK EXPERIENCES
+SOFTWARE ENGINEERING INTERN
+Newton Crypto Canada | May 2025 – Aug 2025
+● Built production-grade Python and Django modules.
+
+OTHER EXPERIENCES
+SALESPERSON
+Club Monaco | Upscale Retail in Canada
+Nov 2024 – Present, Part-time
+● Delivered personalized customer recommendations.
+"""
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Software Engineer",
+            source_resume=source_resume,
+        )
+        issues = validate_draft(
+            fixed,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+        )
+
+        self.assertIn(
+            "\nNewton Crypto Canada\n"
+            "SOFTWARE ENGINEERING INTERN - "
+            "Summer 2025 Co-op / May 2025 - Aug 2025\n"
+            "● Built production-grade Python and Django modules.",
+            fixed.resume,
+        )
+        self.assertIn(
+            "\nClub Monaco | Upscale Retail in Canada\n"
+            "SALESPERSON - Nov 2024 - Present, Part-time\n"
+            "● Delivered personalized customer recommendations.",
+            fixed.resume,
+        )
+        self.assertNotIn(
+            "RESUME_ROLE_FORMAT_INVALID",
+            {issue.code for issue in issues},
+        )
+        self.assertIn("Normalized verified role titles", " ".join(changes))
+
     def test_safe_fixes_repair_category_dates_and_cover_letter_dash(self):
         source_resume = """# Alex Example
 alex@example.com
