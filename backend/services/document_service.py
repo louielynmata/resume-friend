@@ -13,7 +13,7 @@ from .document_normalization import normalize_resume_bullets
 
 
 _RESUME_FONT = "Poppins"
-_RESUME_BODY_SIZE = 9
+_RESUME_BODY_SIZE = 8.5
 _RESUME_ACCENT = RGBColor(0x20, 0x59, 0x68)
 _COVER_FONT = "Work Sans"
 _COVER_BODY_SIZE = 12
@@ -87,7 +87,12 @@ def _normalize_document_text(content: str) -> list[str]:
     # Replace em dash and en dash used as sentence separators with a plain hyphen.
     # En dash between digits is kept (date ranges like 2024-2026 are fine as hyphens).
     normalized = re.sub(r"\s*—\s*", " - ", normalized)         # em dash (U+2014)
-    normalized = re.sub(r"(?<!\d)\s*–\s*(?!\d)", " - ", normalized)  # en dash not between digits
+    normalized = "\n".join(
+        line
+        if re.match(r"^\s*PROJECT(?:_META)?\s*:", line, re.IGNORECASE)
+        else re.sub(r"(?<!\d)\s*–\s*(?!\d)", " - ", line)
+        for line in normalized.splitlines()
+    )
     normalized = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", normalized)
     normalized = re.sub(r"\s*```$", "", normalized)
 
@@ -180,6 +185,16 @@ _KNOWN_SECTION_NAMES = frozenset({
     "NOTABLE CLIENTS",
 })
 
+_ENTRY_BULLET_SECTIONS = frozenset({
+    "PROJECTS",
+    "NOTABLE PROJECTS",
+    "WORK EXPERIENCE",
+    "RELATED WORK EXPERIENCES",
+    "OTHER EXPERIENCES",
+    "EXPERIENCE",
+    "CREATIVE EXPERIENCE",
+})
+
 # Lines matching this pattern are system-prompt artifacts or AI meta-commentary — drop them entirely
 _ARTIFACT_PAT = re.compile(
     r"^(instructions|writing\s+style\s+examples?|transcript|analysis)\s*[-─═]*$"
@@ -260,6 +275,18 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
     m = re.match(r"^\[?TAGLINE\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
     if m:
         return "tagline", m.group(1).strip()
+
+    m = re.match(r"^PROJECT_META\s*:\s*(.+?)$", line, re.IGNORECASE)
+    if m:
+        return "project_meta", m.group(1).strip()
+
+    m = re.match(r"^PROJECT\s*:\s*(.+?)$", line, re.IGNORECASE)
+    if m:
+        return "project", m.group(1).strip()
+
+    m = re.match(r"^COMPANY\s*:\s*(.+?)$", line, re.IGNORECASE)
+    if m:
+        return "company", m.group(1).strip()
 
     m = re.match(r"^\[?(?:CONTACT|CONTACT INFO)\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
     if m:
@@ -464,9 +491,10 @@ def _next_rendered_kind(lines: list[str], index: int) -> str | None:
 
 def _build_resume_docx(content: str, path: Path) -> Path:
     doc = Document()
-    # Reference PDFs use a compact Poppins layout with approximately 0.5-0.75
-    # inch margins and 8.5-9 pt body copy.
-    _set_margins(doc, top=0.55, bottom=0.5, left=0.55, right=0.55)
+    # The development reference uses a compact Poppins layout with narrow
+    # margins and 8.5-9 pt body copy so the source-backed sections remain
+    # readable without spilling a small final block onto a third page.
+    _set_margins(doc, top=0.4, bottom=0.4, left=0.4, right=0.4)
     _set_default_font(doc, font_family=_RESUME_FONT, size=_RESUME_BODY_SIZE)
     _configure_resume_bullet_style(doc)
     _add_page_number_footer(doc)
@@ -525,6 +553,15 @@ def _build_resume_docx(content: str, path: Path) -> Path:
             current_section = value.upper()
             _add_section_header(doc, value)
 
+        elif kind == "project":
+            _add_project_header(doc, value)
+
+        elif kind == "project_meta":
+            _add_project_meta(doc, value)
+
+        elif kind == "company":
+            _add_entry_header(doc, value, keep_with_next=True)
+
         elif kind == "category":
             categories: list[tuple[str, str]] = []
             while i < len(lines):
@@ -576,7 +613,14 @@ def _build_resume_docx(content: str, path: Path) -> Path:
         elif kind == "bullet":
             p = doc.add_paragraph(style="List Bullet")
             _set_para_spacing(p, before=0, after=0)
-            _set_pagination(p, keep_together=True)
+            _set_pagination(
+                p,
+                keep_with_next=(
+                    current_section in _ENTRY_BULLET_SECTIONS
+                    and next_kind == "bullet"
+                ),
+                keep_together=True,
+            )
             _add_inline_runs(p, value, size=_RESUME_BODY_SIZE)
 
         else:  # body
@@ -617,7 +661,7 @@ def _add_role_with_date(doc: Document, text: str) -> None:
         run = p.add_run(m.group(1).strip())
         run.bold = True
         _set_run_font(run, size=_RESUME_BODY_SIZE)
-        run2 = p.add_run("  -  " + m.group(2).strip())
+        run2 = p.add_run(" – " + _format_display_dates(m.group(2)))
         _set_run_font(run2, size=_RESUME_BODY_SIZE)
         run2.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
     else:
@@ -658,6 +702,40 @@ def _add_entry_header(
         run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
 
 
+def _add_project_header(doc: Document, text: str) -> None:
+    parts = [part.strip() for part in _strip_bold(text).split("|")]
+    p = doc.add_paragraph()
+    _set_para_spacing(p, before=4, after=0)
+    _set_pagination(p, keep_with_next=True, keep_together=True)
+    if parts:
+        run = p.add_run(parts[0])
+        run.bold = True
+        _set_run_font(run, size=_RESUME_BODY_SIZE)
+    if len(parts) > 1 and parts[1]:
+        run = p.add_run(" | " + _format_display_dates(parts[1]))
+        _set_run_font(run, size=_RESUME_BODY_SIZE)
+        run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+
+
+def _add_project_meta(doc: Document, text: str) -> None:
+    parts = [part.strip() for part in _strip_bold(text).split("|")]
+    p = doc.add_paragraph()
+    _set_para_spacing(p, before=0, after=0)
+    _set_pagination(p, keep_with_next=True, keep_together=True)
+    if parts:
+        run = p.add_run(parts[0])
+        _set_run_font(run, size=_RESUME_BODY_SIZE)
+    if len(parts) > 1 and parts[1]:
+        run = p.add_run(" | " + _format_display_dates(parts[1]))
+        _set_run_font(run, size=_RESUME_BODY_SIZE)
+        run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+
+
+def _format_display_dates(text: str) -> str:
+    """Use the reference document's en dash for rendered date ranges."""
+    return re.sub(r"(?<=[A-Za-z0-9])\s+-\s+(?=[A-Za-z0-9])", " – ", text.strip())
+
+
 def _add_category_grid(
     doc: Document,
     categories: list[tuple[str, str]],
@@ -673,7 +751,7 @@ def _add_category_grid(
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
     table.autofit = False
 
-    usable_width = 8.5 - 1.1
+    usable_width = 8.5 - 0.8
     column_width = usable_width / columns
     _set_table_borders_none(table)
 

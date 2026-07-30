@@ -183,6 +183,46 @@ class QAServiceTests(unittest.TestCase):
             {issue.code for issue in issues},
         )
 
+    def test_validator_allows_source_backed_ai_product_project_description(self):
+        source_resume = f"""{SOURCE_RESUME}
+
+## Toolkit and Technical Skills
+
+### AI Tools
+- Pair Pilot
+- Local Assistant
+
+## Projects
+
+### Resume Friend
+- A local AI tool that generates tailored resumes and cover letters.
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TECHNICAL SKILLS\n"
+            "CATEGORY: AI Tools | Pair Pilot, Local Assistant\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+        draft.resume += (
+            "\n\nPROJECTS\n"
+            "RESUME FRIEND\n"
+            "● Developed a local AI tool that generates tailored resumes "
+            "and cover letters.\n"
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+        )
+
+        self.assertNotIn(
+            "RESUME_AI_CONTENT_OUTSIDE_TOOLS_CATEGORY",
+            {issue.code for issue in issues},
+        )
+
     def test_validator_requires_related_and_other_experience_sections(self):
         source_resume = """# Alex Example
 
@@ -275,6 +315,30 @@ END REQUIRED COVER LETTER CLOSING BLOCK"""
         self.assertIn("RESUME_SOURCE_EMPLOYERS_MISSING", codes)
         self.assertIn("RESUME_SOURCE_DATES_MISSING", codes)
         self.assertIn("RESUME_SOURCE_ACHIEVEMENTS_MISSING", codes)
+
+    def test_validator_accepts_employer_without_descriptive_source_suffix(self):
+        source_resume = """# Alex Example
+alex@example.com
+https://github.com/alex
+
+## Work Experience
+
+### Product Designer
+**Club Monaco — Upscale Retail in Canada**
+2020 - Present
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace("Example Studio", "Club Monaco")
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+        )
+        codes = {issue.code for issue in issues}
+
+        self.assertNotIn("RESUME_SOURCE_EMPLOYERS_MISSING", codes)
 
     def test_safe_fixes_restore_exact_cover_letter_signoff_name(self):
         draft = valid_draft()
@@ -906,6 +970,165 @@ MULTIMEDIA DESIGNER & CREATIVE DIRECTOR - May 2012 - 2021; Oct 2024 - 2026
         self.assertIn("CATEGORY builder markers", " ".join(changes))
         self.assertIn("Restored verified role titles", " ".join(changes))
         self.assertEqual(fixed_again, fixed)
+        self.assertEqual(second_changes, [])
+
+    def test_safe_fixes_restore_dates_from_unbolded_source_role_labels(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director / Senior Art Director
+**Example Agency**
+Creative Director: April 2021 - Oct 2024, Full-time
+Senior Art Director: April 2017 - April 2018, Full-time; 2019 - 2020, Freelance
+"""
+        draft = valid_draft()
+        draft.resume = """NAME: Alex Example
+ROLE: Creative Director
+CONTACT: alex@example.com
+LINKS: https://github.com/alex
+
+PROFESSIONAL SUMMARY
+Creative director focused on integrated campaigns.
+
+---
+
+EXPERIENCE
+Example Agency
+SENIOR ART DIRECTOR - April 2017 - April 2018, Full-time
+● Led integrated campaigns.
+
+CREATIVE DIRECTOR - April 2021 - Oct 2024, Full-time
+● Directed multidisciplinary teams.
+"""
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Creative Director",
+            source_resume=source_resume,
+        )
+        codes = {
+            issue.code
+            for issue in validate_draft(
+                fixed,
+                owner_name="Alex Example",
+                source_resume=source_resume,
+                source_materials=source_resume,
+            )
+        }
+
+        self.assertIn(
+            "SENIOR ART DIRECTOR - April 2017 - April 2018, Full-time; "
+            "2019 - 2020, Freelance",
+            fixed.resume,
+        )
+        self.assertNotIn("RESUME_SOURCE_DATES_MISSING", codes)
+
+    def test_safe_fixes_restore_development_reference_sections_from_source(self):
+        source_resume = """# Alex Example
+
+## Educational Attainment
+
+### SAIT — The Southern Alberta Institute of Technology
+
+**Software Development Diploma**
+Graduated with Honors — June 2026 — GPA 3.84 / 4.0
+
+## Projects
+
+### Reference Platform – Example Client and SAIT
+
+**Capstone for Example Digital Services**
+2025–2026
+
+- Designed a modular backend architecture.
+- Applied product design and delivery practices.
+
+### Mobile Social App
+
+2025–Present
+
+- Developed an Android-first social platform.
+
+## Related Work Experiences
+
+### Software Engineer
+
+**Example Labs**
+Jan 2025 – Present
+
+- Built reliable customer workflows.
+- Improved operational productivity.
+
+## Other Experiences
+
+### Salesperson
+
+**Example Retail — Customer Service**
+Nov 2024 – Present, Part-time
+
+- Supported customers.
+"""
+        draft = valid_draft()
+        draft.resume += """
+
+EDUCATION
+SAIT, The Southern Alberta Institute of Technology | Graduated with Honors - June 2026 - GPA 3.84 / 4.0
+Software Development Diploma
+
+PROJECTS
+Example School | 2026
+● Flattened project content.
+
+RELATED WORK EXPERIENCES
+SOFTWARE ENGINEER - 2025
+Example Labs
+● Rewritten work content.
+
+OTHER EXPERIENCES
+Example Retail
+SALESPERSON - 2024 - Present
+● Rewritten retail content.
+"""
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Software Engineer",
+            source_resume=source_resume,
+        )
+        fixed_again, second_changes = apply_safe_deterministic_fixes(
+            fixed,
+            owner_name="Alex Example",
+            target_role="Software Engineer",
+            source_resume=source_resume,
+        )
+
+        self.assertIn(
+            "PROJECT: Reference Platform – Example Client and SAIT",
+            fixed.resume,
+        )
+        self.assertIn(
+            "PROJECT_META: Capstone for Example Digital Services | 2025 - 2026",
+            fixed.resume,
+        )
+        self.assertIn("COMPANY: Example Labs", fixed.resume)
+        self.assertIn(
+            "SOFTWARE ENGINEER - Jan 2025 - Present",
+            fixed.resume,
+        )
+        self.assertIn(
+            "COMPANY: Example Retail, Customer Service",
+            fixed.resume,
+        )
+        self.assertNotIn("Flattened project content", fixed.resume)
+        self.assertNotIn("Rewritten work content", fixed.resume)
+        self.assertIn(
+            "Restored the development reference sections",
+            " ".join(changes),
+        )
+        self.assertEqual(fixed_again.model_dump(), fixed.model_dump())
         self.assertEqual(second_changes, [])
 
     def test_safe_fixes_repair_retained_qa_failure_cluster(self):

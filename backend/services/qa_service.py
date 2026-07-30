@@ -165,6 +165,19 @@ def apply_safe_deterministic_fixes(
                 "the source resume."
             )
 
+        (
+            fixed.resume,
+            development_sections_changed,
+        ) = _restore_development_reference_sections(
+            fixed.resume,
+            source_resume,
+        )
+        if development_sections_changed:
+            changes.append(
+                "Restored the development reference sections for Projects, "
+                "Related Work Experiences, and Other Experiences."
+            )
+
     trusted_materials = source_materials or source_resume
     if trusted_materials.strip():
         fixed.resume, resume_urls_changed = _restore_source_supported_urls(
@@ -511,9 +524,10 @@ def validate_draft(
             "structure",
             QASeverity.ERROR,
             "resume",
-            "Keep AI and LLM content only in the compact "
-            "`CATEGORY: AI Tools | ...` line. Remove it from the summary, "
-            "experience, projects, and other resume prose.",
+            "Keep named AI tool references only in the compact "
+            "`CATEGORY: AI Tools | ...` line. Remove duplicated tool names "
+            "from the summary, experience, projects, and other resume prose. "
+            "Source-backed AI or LLM product descriptions may remain.",
         )
 
     generated_sections = {
@@ -793,6 +807,238 @@ def _markdown_section_lines(text: str, names: set[str]) -> list[str]:
     return lines
 
 
+def _markdown_section_entries(
+    text: str,
+    names: set[str],
+) -> list[tuple[str, list[str]]]:
+    entries: list[tuple[str, list[str]]] = []
+    current_heading = ""
+    current_lines: list[str] = []
+
+    for raw_line in _markdown_section_lines(text, names):
+        heading = re.match(r"^###\s+(.+?)\s*$", raw_line.strip())
+        if heading:
+            if current_heading:
+                entries.append((current_heading, current_lines))
+            current_heading = _plain_text(heading.group(1))
+            current_lines = []
+            continue
+        if current_heading:
+            current_lines.append(raw_line)
+
+    if current_heading:
+        entries.append((current_heading, current_lines))
+    return entries
+
+
+def _restore_development_reference_sections(
+    text: str,
+    source_resume: str,
+) -> tuple[str, bool]:
+    projects = _source_projects_reference_block(source_resume)
+    related = _source_work_reference_block(
+        source_resume,
+        {"Related Work Experience", "Related Work Experiences"},
+        "RELATED WORK EXPERIENCES",
+    )
+    other = _source_work_reference_block(
+        source_resume,
+        {"Other Experience", "Other Experiences"},
+        "OTHER EXPERIENCES",
+    )
+    if not projects or not related or not other:
+        return text.strip(), False
+
+    replacement = "\n\n---\n\n".join((projects, related, other))
+    lines = text.strip().splitlines()
+    targets = {
+        "PROJECTS",
+        "NOTABLE PROJECTS",
+        "RELATED WORK EXPERIENCES",
+        "OTHER EXPERIENCES",
+    }
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while index < len(lines):
+        section = _resume_section_name(lines[index])
+        if section not in targets:
+            index += 1
+            continue
+
+        start = index
+        if start > 0 and lines[start - 1].strip() == "---":
+            start -= 1
+        end = index + 1
+        while end < len(lines) and _resume_section_name(lines[end]) is None:
+            end += 1
+        spans.append((start, end))
+        index = end
+
+    if spans:
+        insertion_index = min(start for start, _ in spans)
+    else:
+        insertion_index = next(
+            (
+                candidate
+                for candidate, line in enumerate(lines)
+                if _resume_section_name(line)
+                in {"CERTIFICATIONS", "ACHIEVEMENTS", "AWARDS AND ACHIEVEMENTS"}
+            ),
+            len(lines),
+        )
+
+    removed = {
+        candidate
+        for start, end in spans
+        for candidate in range(start, end)
+    }
+    replacement_lines = replacement.splitlines()
+    rebuilt: list[str] = []
+    inserted = False
+    for candidate, line in enumerate(lines):
+        if candidate == insertion_index and not inserted:
+            rebuilt.extend(replacement_lines)
+            inserted = True
+        if candidate not in removed:
+            rebuilt.append(line)
+    if not inserted:
+        if rebuilt and rebuilt[-1].strip():
+            rebuilt.append("")
+        rebuilt.extend(replacement_lines)
+
+    restored = _collapse_blank_lines(rebuilt)
+    original = text.strip()
+    return restored, restored != original
+
+
+def _source_projects_reference_block(source_resume: str) -> str:
+    entries = _markdown_section_entries(source_resume, {"Projects"})
+    if not entries:
+        return ""
+
+    output = ["PROJECTS"]
+    for title, raw_lines in entries:
+        context = ""
+        dates = ""
+        bullets: list[str] = []
+        for raw_line in raw_lines:
+            line = raw_line.strip()
+            if not line or line == "---":
+                continue
+            bullet = re.match(r"^\s*(?:[-+*]|\u25cf|\u2022)\s+(.+?)\s*$", line)
+            if bullet:
+                bullets.append(_reference_safe_text(bullet.group(1)))
+                continue
+            bold = re.match(r"^\*\*(.+?)\*\*\s*$", line)
+            if bold and not context:
+                context = _reference_safe_text(_plain_text(bold.group(1)))
+                continue
+            if _line_has_resume_date(line) and not dates:
+                dates = _canonical_source_dates(line)
+
+        project_title = _reference_safe_text(title)
+        if context:
+            output.append(f"PROJECT: {project_title}")
+            meta = context + (f" | {dates}" if dates else "")
+            output.append(f"PROJECT_META: {meta}")
+        else:
+            project = project_title + (f" | {dates}" if dates else "")
+            output.append(f"PROJECT: {project}")
+        output.extend(f"\u25cf {bullet}" for bullet in bullets)
+
+    return "\n".join(output).strip()
+
+
+def _source_work_reference_block(
+    source_resume: str,
+    names: set[str],
+    output_heading: str,
+) -> str:
+    entries = _markdown_section_entries(source_resume, names)
+    if not entries:
+        return ""
+
+    output = [output_heading]
+    for heading, raw_lines in entries:
+        roles = [
+            role
+            for role in re.split(r"\s*/\s*", _plain_text(heading))
+            if role
+        ]
+        company = ""
+        generic_dates = ""
+        role_dates: dict[str, str] = {}
+        bullets: list[str] = []
+
+        for raw_line in raw_lines:
+            line = raw_line.strip()
+            if not line or line == "---":
+                continue
+            bullet = re.match(r"^\s*(?:[-+*]|\u25cf|\u2022)\s+(.+?)\s*$", line)
+            if bullet:
+                bullets.append(_reference_safe_text(bullet.group(1)))
+                continue
+            bold = re.match(r"^\*\*(.+?)\*\*\s*$", line)
+            if bold and not company:
+                company = _reference_safe_text(_plain_text(bold.group(1)))
+                continue
+
+            explicit = re.match(r"^(.+?):\s*(.+)$", _plain_text(line))
+            if explicit and _line_has_resume_date(explicit.group(2)):
+                explicit_role = _plain_text(explicit.group(1))
+                matching_role = next(
+                    (
+                        role
+                        for role in roles
+                        if _normalized_match_text(role)
+                        == _normalized_match_text(explicit_role)
+                    ),
+                    None,
+                )
+                if matching_role:
+                    role_dates[matching_role] = _canonical_source_dates(
+                        explicit.group(2)
+                    )
+                    continue
+
+            if _line_has_resume_date(line) and not generic_dates:
+                generic_dates = _canonical_source_dates(line)
+
+        if not company or not roles:
+            continue
+
+        output.append(f"COMPANY: {company}")
+        for role in roles:
+            dates = role_dates.get(role, generic_dates)
+            role_line = role.upper() + (f" - {dates}" if dates else "")
+            output.append(role_line)
+        output.extend(f"\u25cf {bullet}" for bullet in bullets)
+
+    return "\n".join(output).strip()
+
+
+def _resume_section_name(line: str) -> str | None:
+    clean = _plain_text(line)
+    clean = re.sub(r"^#{1,6}\s*", "", clean).strip().upper()
+    return clean if clean in _RESUME_SECTION_NAMES else None
+
+
+def _reference_safe_text(text: str) -> str:
+    return re.sub(r"\s*\u2014\s*", ", ", text).strip()
+
+
+def _collapse_blank_lines(lines: list[str]) -> str:
+    collapsed: list[str] = []
+    previous_blank = False
+    for line in lines:
+        blank = not line.strip()
+        if blank and previous_blank:
+            continue
+        collapsed.append(line.rstrip())
+        previous_blank = blank
+    return "\n".join(collapsed).strip()
+
+
 def _markdown_subsection_items(text: str, name: str) -> list[str]:
     items: list[str] = []
     active = False
@@ -884,6 +1130,7 @@ def _extract_source_resume_requirements(source_resume: str) -> dict[str, object]
             company_match = re.match(r"^\*\*(.+?)\*\*\s*$", line)
             if company_match:
                 company = _plain_text(company_match.group(1)).rstrip(":")
+                company = re.split(r"\s+[–—]\s+", company, maxsplit=1)[0].strip()
                 if company and company not in employers:
                     employers.append(company)
                 waiting_for_company = False
@@ -1370,13 +1617,6 @@ def _resume_has_ai_content_outside_category(
         content_lines.append(line)
 
     content = "\n".join(content_lines)
-    if re.search(
-        r"(?i)(?<![A-Za-z0-9])(?:AI(?:-assisted)?|"
-        r"artificial intelligence|(?:local\s+)?LLMs?)(?![A-Za-z0-9])",
-        content,
-    ):
-        return True
-
     terms: list[str] = []
     for tool in source_ai_tools if isinstance(source_ai_tools, list) else []:
         for term in re.split(r"\s+(?:and|&)\s+", tool, flags=re.IGNORECASE):
@@ -1568,10 +1808,17 @@ def _restore_source_dates(text: str, source_resume: str) -> tuple[str, bool]:
     for institution, credential, dates in _extract_source_education_dates(
         source_resume
     ):
+        current_section: str | None = None
         for index, line in enumerate(lines):
+            section = _resume_section_name(line)
+            if section is not None:
+                current_section = section
+                continue
+            if current_section not in {"EDUCATION", "EDUCATIONAL ATTAINMENT"}:
+                continue
             if not _education_anchor_matches(institution, line):
                 continue
-            replacement = f"{institution} | {dates}"
+            replacement = f"{_reference_safe_text(institution)} | {dates}"
             if lines[index] != replacement:
                 lines[index] = replacement
                 changed = True
@@ -1650,8 +1897,16 @@ def _extract_source_role_dates(source_resume: str) -> list[tuple[str, str]]:
             ]
             continue
 
-        explicit = re.match(r"^\*\*(.+?):\*\*\s*(.+)$", line)
-        if explicit and _YEAR_RE.search(explicit.group(2)):
+        explicit = re.match(r"^(.+?):\s*(.+)$", _plain_text(line))
+        if (
+            explicit
+            and any(
+                _normalized_match_text(explicit.group(1))
+                == _normalized_match_text(role)
+                for role in current_roles
+            )
+            and _YEAR_RE.search(explicit.group(2))
+        ):
             entries.append(
                 (
                     _plain_text(explicit.group(1)),

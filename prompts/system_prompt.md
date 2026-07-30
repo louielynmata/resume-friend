@@ -81,7 +81,7 @@ SKILL AND TOOL CATEGORY FORMAT:
 - Do not prefix CATEGORY lines or category names with a bullet.
 - Separate category values with a comma followed by one space. Never use semicolons as skill or tool separators.
 - Use two to four categories. Keep each category self-contained so the builder can place it in the compact reference-style grid.
-- For DEVELOPMENT resumes, if the source resume has an `### AI Tools` subsection, include exactly one `CATEGORY: AI Tools | ...` line and copy every listed tool exactly. Do not infer or add tools. This category is the only place AI or LLM content may appear in the resume; do not repeat it in the summary, experience, projects, or other prose.
+- For DEVELOPMENT resumes, if the source resume has an `### AI Tools` subsection, include exactly one `CATEGORY: AI Tools | ...` line and copy every listed tool exactly. Do not infer or add tools. Keep named AI tool references in this category instead of repeating tool names in the summary, experience, projects, or other prose. Preserve source-backed descriptions of AI or LLM products, projects, and domain work outside the category.
 
 WORK ENTRY FORMAT - use only these two patterns:
 
@@ -110,6 +110,9 @@ RULES FOR ENTRIES:
 - Do not add a standalone descriptive subtitle before the company or role.
 - Use a pipe only in contact lines, company/context lines for Pattern B, and institution/year lines.
 - Do not use a pipe inside bullet text.
+- For DEVELOPMENT resumes, the source `Projects`, `Related Work Experiences`, and `Other Experiences` sections are fixed reference content. Preserve their order, titles, context, dates, employers, roles, and bullets without rewriting, combining, omitting, or adding claims.
+- Render fixed development projects as `PROJECT: Project name | verified dates`, or as `PROJECT: Project name` followed by `PROJECT_META: Context | verified dates` when the source provides a separate context line.
+- Render fixed development employers as `COMPANY: Company or entity in source casing`, followed by one `ROLE TITLE - verified dates` line per role and the exact source bullets.
 
 <COVER_LETTER>
 Cover Letter
@@ -154,7 +157,7 @@ SELF-REVIEW - complete all four passes and correct every issue before returning 
 
 Pass 1 - Content completeness:
 - Every employer, role, and date from the source resume remains represented.
-- Every education entry keeps its verified start and end years on the institution line, including `2009 - 2013` when present in the selected source.
+- Education dates are preserved only when intentionally present in the selected source resume; omitted attendance or graduation years remain omitted and are never inferred from other materials.
 - Every named award and achievement is preserved exactly.
 - Graduation status, dates, honors, and GPA match the applicant materials exactly.
 - Certifications and awards are formatted as ● bullets.

@@ -135,10 +135,12 @@ CATEGORY: Collaboration | stakeholder workshops, presentations
 
             self.assertEqual(name.runs[0].font.size.pt, 13)
             self.assertEqual(str(name.runs[0].font.color.rgb), "205968")
-            self.assertEqual(summary.runs[0].font.size.pt, 9)
+            self.assertEqual(summary.runs[0].font.size.pt, 8.5)
             self.assertEqual(summary.runs[0].font.name, "Poppins")
-            self.assertAlmostEqual(section.left_margin.inches, 0.55, places=2)
-            self.assertAlmostEqual(section.right_margin.inches, 0.55, places=2)
+            self.assertAlmostEqual(section.top_margin.inches, 0.4, places=2)
+            self.assertAlmostEqual(section.bottom_margin.inches, 0.4, places=2)
+            self.assertAlmostEqual(section.left_margin.inches, 0.4, places=2)
+            self.assertAlmostEqual(section.right_margin.inches, 0.4, places=2)
             self.assertEqual(len(document.tables), 1)
             self.assertEqual(len(document.tables[0].columns), 2)
             self.assertIn("Product Design", document.tables[0].cell(0, 0).text)
@@ -232,6 +234,136 @@ SALESPERSON - 2024 - Present
             self.assertNotEqual(company.runs[0].text, company.runs[0].text.upper())
             self.assertEqual(position.runs[0].text, "SOFTWARE ENGINEER")
             self.assertTrue(position.runs[0].bold)
+
+    def test_resume_matches_reference_project_hierarchy_and_pagination(self):
+        content = """NAME: Alex Example
+ROLE: Software Developer
+CONTACT: alex@example.com
+
+PROJECTS
+PROJECT: FlyDocs Contract Management App – Example Client
+PROJECT_META: Capstone for Example Digital Services | 2025 - 2026
+● Designed a modular backend architecture.
+● Applied product design and delivery practices.
+PROJECT: React Native Social Site | 2025 - Present
+● Developed an Android-first social platform.
+● Continues development for iOS compatibility.
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(content, path)
+            document = Document(path)
+            paragraph_text = [paragraph.text for paragraph in document.paragraphs]
+
+            self.assertIn(
+                "FlyDocs Contract Management App – Example Client",
+                paragraph_text,
+            )
+            self.assertIn(
+                "Capstone for Example Digital Services | 2025 – 2026",
+                paragraph_text,
+            )
+            self.assertIn(
+                "React Native Social Site | 2025 – Present",
+                paragraph_text,
+            )
+
+            flydocs = paragraph_starting_with(
+                document,
+                "FlyDocs Contract Management App",
+            )
+            context = paragraph_starting_with(
+                document,
+                "Capstone for Example Digital Services",
+            )
+            first_bullet = paragraph_starting_with(
+                document,
+                "Designed a modular backend architecture.",
+            )
+            second_bullet = paragraph_starting_with(
+                document,
+                "Applied product design and delivery practices.",
+            )
+
+            self.assertTrue(flydocs.runs[0].bold)
+            self.assertFalse(context.runs[0].bold)
+            self.assertTrue(flydocs.paragraph_format.keep_with_next)
+            self.assertTrue(context.paragraph_format.keep_with_next)
+            self.assertTrue(first_bullet.paragraph_format.keep_with_next)
+            self.assertFalse(second_bullet.paragraph_format.keep_with_next)
+
+    def test_resume_matches_reference_company_role_hierarchy_and_pagination(self):
+        content = """NAME: Alex Example
+ROLE: Software Developer
+CONTACT: alex@example.com
+
+RELATED WORK EXPERIENCES
+COMPANY: Example Labs
+SOFTWARE ENGINEER - Jan 2025 - Present
+● Built reliable customer workflows.
+● Improved operational productivity.
+
+OTHER EXPERIENCES
+COMPANY: Example Retail, Customer Service
+SALESPERSON - Nov 2024 - Present, Part-time
+● Supported customers.
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(content, path)
+            document = Document(path)
+            paragraph_text = [paragraph.text for paragraph in document.paragraphs]
+
+            self.assertIn("Example Labs", paragraph_text)
+            self.assertNotIn("COMPANY: Example Labs", paragraph_text)
+
+            company = paragraph_starting_with(document, "Example Labs")
+            role = paragraph_starting_with(document, "SOFTWARE ENGINEER")
+            first_bullet = paragraph_starting_with(
+                document,
+                "Built reliable customer workflows.",
+            )
+            second_bullet = paragraph_starting_with(
+                document,
+                "Improved operational productivity.",
+            )
+
+            self.assertTrue(company.runs[0].bold)
+            self.assertTrue(company.paragraph_format.keep_with_next)
+            self.assertTrue(role.paragraph_format.keep_with_next)
+            self.assertEqual(
+                role.text,
+                "SOFTWARE ENGINEER – Jan 2025 – Present",
+            )
+            self.assertTrue(first_bullet.paragraph_format.keep_with_next)
+            self.assertFalse(second_bullet.paragraph_format.keep_with_next)
+
+    def test_resume_does_not_make_optional_section_bullets_one_unbreakable_block(self):
+        content = """NAME: Alex Example
+ROLE: Software Developer
+CONTACT: alex@example.com
+
+ACHIEVEMENTS
+● First supported achievement.
+● Second supported achievement.
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(content, path)
+            document = Document(path)
+
+            first_bullet = paragraph_starting_with(
+                document,
+                "First supported achievement.",
+            )
+            second_bullet = paragraph_starting_with(
+                document,
+                "Second supported achievement.",
+            )
+
+            self.assertFalse(first_bullet.paragraph_format.keep_with_next)
+            self.assertFalse(second_bullet.paragraph_format.keep_with_next)
+            self.assertTrue(first_bullet.paragraph_format.keep_together)
 
     def test_resume_hyperlinks_bare_website_without_linking_email_domain(self):
         content = """NAME: Alex Example
