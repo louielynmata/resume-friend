@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from urllib.parse import urlsplit
 
 from ..config import settings
@@ -11,7 +12,11 @@ from ..qa_models import (
     QASeverity,
 )
 from .ai_service import generate_structured
-from .document_normalization import normalize_resume_bullets
+from .document_normalization import (
+    CATEGORY_SECTION_NAMES as _CATEGORY_SECTION_NAMES,
+    RESUME_SECTION_NAMES as _RESUME_SECTION_NAMES,
+    normalize_resume_bullets,
+)
 
 
 _TAG_RE = re.compile(r"<(?P<tag>RESUME|COVER_LETTER|ANALYSIS)>(?P<body>.*?)</(?P=tag)>", re.DOTALL)
@@ -35,34 +40,7 @@ _COVER_LETTER_CLOSING_RE = re.compile(
 _NAME_CANDIDATE_RE = re.compile(r"^[A-Za-z][A-Za-z'.-]*(?:\s+[A-Za-z][A-Za-z'.-]*){0,4}$")
 _VALID_ATS_SCORE_RE = re.compile(r"(?im)^ATS_SCORE:\s*(?:100|[1-9]?\d)\s*$")
 _QA_PROMPT_FILE = "qa_prompt.md"
-_RESUME_SECTION_NAMES = frozenset(
-    {
-        "PROFESSIONAL SUMMARY",
-        "CORE SKILLS",
-        "DESIGN SKILLS",
-        "TECHNICAL SKILLS",
-        "CREATIVE SKILLS",
-        "SKILLS",
-        "TOOLKIT",
-        "WORK EXPERIENCE",
-        "RELATED WORK EXPERIENCES",
-        "OTHER EXPERIENCES",
-        "EXPERIENCE",
-        "CREATIVE EXPERIENCE",
-        "EDUCATION",
-        "EDUCATIONAL ATTAINMENT",
-        "CERTIFICATIONS",
-        "CERTIFICATIONS AND AWARDS",
-        "ACHIEVEMENTS",
-        "AWARDS AND ACHIEVEMENTS",
-        "PROJECTS",
-        "NOTABLE PROJECTS",
-        "NOTABLE CLIENTS",
-    }
-)
-_CATEGORY_SECTION_NAMES = frozenset(
-    {"CORE SKILLS", "DESIGN SKILLS", "TECHNICAL SKILLS", "CREATIVE SKILLS", "SKILLS", "TOOLKIT"}
-)
+_AddIssue = Callable[[str, str, QASeverity, str, str], None]
 
 
 def parse_document_draft(ai_response: str) -> DocumentDraft:
@@ -276,6 +254,45 @@ def validate_draft(
     cover_letter = draft.cover_letter.strip()
     analysis = draft.analysis.strip()
 
+    _validate_structure(
+        resume=resume,
+        cover_letter=cover_letter,
+        owner_name=owner_name,
+        source_materials=source_materials,
+        add=add,
+    )
+    source_requirements = _validate_truthfulness(
+        resume=resume,
+        source_resume=source_resume,
+        add=add,
+    )
+    _validate_formatting(
+        resume=resume,
+        cover_letter=cover_letter,
+        analysis=analysis,
+        source_materials=source_materials,
+        source_requirements=source_requirements,
+        add=add,
+    )
+    _validate_dates(
+        resume=resume,
+        analysis=analysis,
+        source_materials=source_materials,
+        add=add,
+    )
+
+    return issues
+
+
+def _validate_structure(
+    *,
+    resume: str,
+    cover_letter: str,
+    owner_name: str,
+    source_materials: str,
+    add: _AddIssue,
+) -> None:
+
     for marker in ("NAME:", "ROLE:", "CONTACT:"):
         if not re.search(rf"(?im)^{re.escape(marker)}\s*\S+", resume):
             add(
@@ -436,6 +453,13 @@ def validate_draft(
             + ", ".join(semicolon_categories),
         )
 
+
+def _validate_truthfulness(
+    *,
+    resume: str,
+    source_resume: str,
+    add: _AddIssue,
+) -> dict[str, object]:
     source_requirements = _extract_source_resume_requirements(source_resume)
     generated_normalized = _normalized_match_text(resume)
 
@@ -550,6 +574,19 @@ def validate_draft(
             "headings: " + ", ".join(missing_experience_sections),
         )
 
+
+    return source_requirements
+
+
+def _validate_formatting(
+    *,
+    resume: str,
+    cover_letter: str,
+    analysis: str,
+    source_materials: str,
+    source_requirements: dict[str, object],
+    add: _AddIssue,
+) -> None:
     malformed_role_lines = _malformed_required_role_lines(
         resume,
         source_requirements["roles"],
@@ -636,6 +673,14 @@ def validate_draft(
                 f"Generated URL is not present in applicant source materials: {value}",
             )
 
+
+def _validate_dates(
+    *,
+    resume: str,
+    analysis: str,
+    source_materials: str,
+    add: _AddIssue,
+) -> None:
     source_years = set(_YEAR_RE.findall(source_materials))
     generated_years = set(_YEAR_RE.findall(resume))
     unsupported_years = sorted(generated_years - source_years)
@@ -665,8 +710,6 @@ def validate_draft(
             "analysis",
             "ATS analysis does not contain a valid ATS_SCORE between 0 and 100.",
         )
-
-    return issues
 
 
 def _extract_required_block(text: str, start: str, end: str) -> list[str]:

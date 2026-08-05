@@ -13,6 +13,7 @@ from ..schemas import GenerateRequest, GenerateResponse, GenerationStatusRespons
 from ..services.ai_service import generate_content
 from ..services.notion_service import log_application
 from ..services.qa_pipeline import (
+    QAPipelineResult,
     QAPipelineReviewError,
     QAPipelineValidationError,
     run_qa_pipeline,
@@ -33,6 +34,22 @@ class _GenerationProgress:
     status: str
     detail: str | None
     updated_at: float
+
+
+@dataclass(frozen=True)
+class _LoadedModelFiles:
+    resume: str
+    instructions: str
+    writing_examples: str
+    transcript: str
+    system_prompt: str
+
+
+@dataclass(frozen=True)
+class _RunOutput:
+    position_slug: str
+    folder_name: str
+    output_dir: Path
 
 
 _generation_progress: dict[str, _GenerationProgress] = {}
@@ -270,10 +287,7 @@ async def generate(req: GenerateRequest):
         _current_generation_id.reset(progress_token)
 
 
-async def _run_generation(
-    req: GenerateRequest,
-    generation_started_at: float,
-) -> GenerateResponse:
+def _validate_generation_request(req: GenerateRequest) -> None:
     if req.ai_provider not in ("claude", "openai", "ollama"):
         raise _http_error(
             400,
@@ -291,6 +305,8 @@ async def _run_generation(
             detail="job_type must be design or development.",
         )
 
+
+def _load_generation_model_files(req: GenerateRequest) -> _LoadedModelFiles:
     _set_generation_stage("load_model_files")
     try:
         resume_file = (
@@ -361,6 +377,16 @@ async def _run_generation(
             ),
         ) from exc
 
+    return _LoadedModelFiles(
+        resume=resume_content,
+        instructions=instructions,
+        writing_examples=writing_examples,
+        transcript=transcript,
+        system_prompt=system_prompt,
+    )
+
+
+def _resolve_compensation(req: GenerateRequest) -> tuple[float | None, float | None]:
     # Auto-fill a missing salary field using 2,080 hours per year.
     hours_per_year = 2080
     salary_annual = req.salary_annual
@@ -369,18 +395,25 @@ async def _run_generation(
         salary_hourly = round(salary_annual / hours_per_year, 2)
     elif salary_hourly and not salary_annual:
         salary_annual = round(salary_hourly * hours_per_year, 2)
+    return salary_annual, salary_hourly
 
-    user_prompt = f"""Job Description:
+
+def _build_user_prompt(req: GenerateRequest) -> str:
+    return f"""Job Description:
 {req.job_description}
 
 Target Position: {req.position}
 Target Company: {req.company}"""
 
+
+async def _call_generation_provider(
+    req: GenerateRequest,
+    system_prompt: str,
+    user_prompt: str,
+) -> str:
     _set_generation_stage("call_ai_provider")
     try:
-        ai_response = await generate_content(
-            req.ai_provider, system_prompt, user_prompt
-        )
+        return await generate_content(req.ai_provider, system_prompt, user_prompt)
     except ValueError as exc:
         raise _http_error(
             400,
@@ -415,6 +448,8 @@ Target Company: {req.company}"""
             retryable=retryable,
         ) from exc
 
+
+def _prepare_run_output(req: GenerateRequest) -> _RunOutput:
     position_slug = _slugify(req.position)
     company_slug = _slugify(req.company)
     today_str = date.today().strftime("%Y-%m-%d")
@@ -428,7 +463,19 @@ Target Company: {req.company}"""
         f"Position: {req.position}\nCompany:  {req.company}\n\n{req.job_description}",
         encoding="utf-8",
     )
+    return _RunOutput(
+        position_slug=position_slug,
+        folder_name=folder_name,
+        output_dir=output_dir,
+    )
 
+
+async def _run_review_fix_build_validate_stages(
+    req: GenerateRequest,
+    ai_response: str,
+    model_files: _LoadedModelFiles,
+    run_output: _RunOutput,
+) -> QAPipelineResult:
     _set_generation_stage("qa_review")
     try:
         draft = parse_document_draft(ai_response)
@@ -447,27 +494,23 @@ Target Company: {req.company}"""
         ) from exc
 
     try:
-        qa_result = await run_qa_pipeline(
+        return await run_qa_pipeline(
             selected_provider=req.ai_provider,
             draft=draft,
             owner_name=settings.owner_name,
-            source_resume=resume_content,
-            instructions=instructions,
-            writing_examples=writing_examples,
-            transcript=transcript,
+            source_resume=model_files.resume,
+            instructions=model_files.instructions,
+            writing_examples=model_files.writing_examples,
+            transcript=model_files.transcript,
             job_description=req.job_description,
             company_context=req.company_context or "",
             position=req.position,
             company=req.company,
-            position_slug=position_slug,
-            output_dir=output_dir,
+            position_slug=run_output.position_slug,
+            output_dir=run_output.output_dir,
             job_type=req.job_type,
             progress_callback=_set_generation_stage,
         )
-        docs = qa_result.docs
-        draft = qa_result.draft
-        qa_report = qa_result.report
-        qa_report_path = qa_result.report_path
     except QAPipelineValidationError as exc:
         raise _http_error(
             422,
@@ -534,16 +577,28 @@ Target Company: {req.company}"""
             detail=str(exc),
         ) from exc
 
-    analysis_text = draft.analysis or None
+
+def _write_analysis_file(qa_result: QAPipelineResult, output_dir: Path) -> str | None:
+    analysis_text = qa_result.draft.analysis or None
     if analysis_text:
         analysis_path = output_dir / "analysis.md"
         analysis_path.write_text(analysis_text, encoding="utf-8")
+    return analysis_text
 
+
+async def _log_generation_to_notion(
+    req: GenerateRequest,
+    *,
+    folder_name: str,
+    qa_status: str,
+    salary_annual: float | None,
+    salary_hourly: float | None,
+) -> tuple[str | None, str | None]:
     notion_url = None
     notion_error = None
     _set_generation_stage("log_notion")
     if (
-        qa_report.status != "needs_review"
+        qa_status != "needs_review"
         and settings.notion_token
         and settings.notion_database_id
     ):
@@ -565,29 +620,81 @@ Target Company: {req.company}"""
             )
         except Exception as exc:
             notion_error = str(exc)
-    elif qa_report.status == "needs_review":
+    elif qa_status == "needs_review":
         notion_error = "Not logged because generated files still need manual QA review."
+    return notion_url, notion_error
 
-    response = GenerateResponse(
-        output_folder=str(output_dir.resolve()),
-        resume_docx=docs.get("resume_docx", ""),
-        resume_pdf=docs.get("resume_pdf"),
-        cover_letter_docx=docs.get("cover_letter_docx", ""),
-        cover_letter_pdf=docs.get("cover_letter_pdf"),
+
+def _build_generation_response(
+    *,
+    qa_result: QAPipelineResult,
+    run_output: _RunOutput,
+    notion_url: str | None,
+    notion_error: str | None,
+    analysis_text: str | None,
+    generation_started_at: float,
+) -> GenerateResponse:
+    return GenerateResponse(
+        output_folder=str(run_output.output_dir.resolve()),
+        resume_docx=qa_result.docs.get("resume_docx", ""),
+        resume_pdf=qa_result.docs.get("resume_pdf"),
+        cover_letter_docx=qa_result.docs.get("cover_letter_docx", ""),
+        cover_letter_pdf=qa_result.docs.get("cover_letter_pdf"),
         notion_page_url=notion_url,
         notion_error=notion_error,
         analysis=analysis_text,
-        qa_status=qa_report.status,
-        qa_iterations=qa_report.iterations,
-        qa_report_path=str(qa_report_path.resolve()),
-        qa_issues=[issue.message for issue in qa_report.issues],
-        qa_changes=qa_report.changes_made,
+        qa_status=qa_result.report.status,
+        qa_iterations=qa_result.report.iterations,
+        qa_report_path=str(qa_result.report_path.resolve()),
+        qa_issues=[issue.message for issue in qa_result.report.issues],
+        qa_changes=qa_result.report.changes_made,
         processing_seconds=round(perf_counter() - generation_started_at, 2),
         message=(
             "Generated with unresolved QA issues; manual review is required"
-            if qa_report.status == "needs_review"
+            if qa_result.report.status == "needs_review"
             else "Generated and QA-verified successfully"
         ),
+    )
+
+
+async def _run_generation(
+    req: GenerateRequest,
+    generation_started_at: float,
+) -> GenerateResponse:
+    _validate_generation_request(req)
+    model_files = _load_generation_model_files(req)
+    salary_annual, salary_hourly = _resolve_compensation(req)
+    user_prompt = _build_user_prompt(req)
+    ai_response = await _call_generation_provider(
+        req,
+        model_files.system_prompt,
+        user_prompt,
+    )
+    run_output = _prepare_run_output(req)
+
+    qa_result = await _run_review_fix_build_validate_stages(
+        req,
+        ai_response,
+        model_files,
+        run_output,
+    )
+
+    analysis_text = _write_analysis_file(qa_result, run_output.output_dir)
+    notion_url, notion_error = await _log_generation_to_notion(
+        req,
+        folder_name=run_output.folder_name,
+        qa_status=qa_result.report.status,
+        salary_annual=salary_annual,
+        salary_hourly=salary_hourly,
+    )
+
+    response = _build_generation_response(
+        qa_result=qa_result,
+        run_output=run_output,
+        notion_url=notion_url,
+        notion_error=notion_error,
+        analysis_text=analysis_text,
+        generation_started_at=generation_started_at,
     )
     _record_generation_progress("complete", status="completed")
     return response

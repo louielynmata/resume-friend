@@ -1,6 +1,7 @@
 import unittest
 
 from backend.qa_models import DocumentDraft, QASeverity
+from backend.services import document_service, qa_service
 from backend.services.qa_service import (
     apply_safe_deterministic_fixes,
     draft_to_ai_response,
@@ -51,6 +52,18 @@ SCORE_RATIONALE: Supported design experience aligns with the role.
 
 
 class QAServiceTests(unittest.TestCase):
+    def test_validator_and_docx_builder_share_resume_section_names(self):
+        self.assertIs(
+            qa_service._RESUME_SECTION_NAMES,
+            document_service._KNOWN_SECTION_NAMES,
+        )
+        for section_name in qa_service._RESUME_SECTION_NAMES:
+            self.assertEqual(
+                qa_service._resume_section_name(section_name),
+                section_name,
+            )
+            self.assertTrue(document_service._is_section_header(section_name))
+
     def test_parse_and_serialize_round_trip(self):
         original = valid_draft()
         parsed = parse_document_draft(draft_to_ai_response(original))

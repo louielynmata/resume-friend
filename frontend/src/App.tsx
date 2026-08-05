@@ -136,7 +136,8 @@ const GENERATION_STAGES: Array<
   {
     id: "artifact_validation",
     label: "Validate Files",
-    description: "Inspect the rendered DOCX/PDF files and repair blocking issues.",
+    description:
+      "Inspect the rendered DOCX/PDF files and repair blocking issues.",
   },
   {
     id: "log_notion",
@@ -179,13 +180,14 @@ export default function App() {
   );
   const [jobType, setJobType] = useState<JobType>(savedForm.jobType);
   const [meta, setMeta] = useState<JobMeta>(savedForm.meta);
-  const [metaTouched, setMetaTouched] =
-    useState<Record<keyof JobMeta, boolean>>(() =>
-      (Object.keys(DEFAULT_META_TOUCHED) as Array<keyof JobMeta>).reduce(
-        (touched, key) => ({ ...touched, [key]: Boolean(savedForm.meta[key]) }),
-        { ...DEFAULT_META_TOUCHED },
-      ),
-    );
+  const [metaTouched, setMetaTouched] = useState<
+    Record<keyof JobMeta, boolean>
+  >(() =>
+    (Object.keys(DEFAULT_META_TOUCHED) as Array<keyof JobMeta>).reduce(
+      (touched, key) => ({ ...touched, [key]: Boolean(savedForm.meta[key]) }),
+      { ...DEFAULT_META_TOUCHED },
+    ),
+  );
   const [generating, setGenerating] = useState(false);
   const [extractingMeta, setExtractingMeta] = useState(false);
   const [error, setError] = useState("");
@@ -201,9 +203,11 @@ export default function App() {
   const activeGenerationIdRef = useRef<string | null>(null);
   const generationPollInFlightRef = useRef(false);
   const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
-  const [modelFilesStatus, setModelFilesStatus] = useState<ModelFilesStatus | null>(null);
+  const [modelFilesStatus, setModelFilesStatus] =
+    useState<ModelFilesStatus | null>(null);
   const [modelFilesChecked, setModelFilesChecked] = useState(false);
-  const [modelFilesBannerDismissed, setModelFilesBannerDismissed] = useState(false);
+  const [modelFilesBannerDismissed, setModelFilesBannerDismissed] =
+    useState(false);
 
   function stopGenerationTicker(captureElapsed = true) {
     if (generationIntervalRef.current !== null) {
@@ -326,7 +330,8 @@ export default function App() {
   }, [jd, companyContext, aiProvider, jobType, meta]);
 
   useEffect(() => {
-    api.modelFiles()
+    api
+      .modelFiles()
       .then(setModelFilesStatus)
       .catch(() => setModelFilesStatus(null))
       .finally(() => setModelFilesChecked(true));
@@ -527,17 +532,24 @@ export default function App() {
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-3">
           <div className="max-w-2xl mx-auto flex items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-amber-800">Setup required — model files not found</p>
+              <p className="text-sm font-semibold text-amber-800">
+                Setup required — model files not found
+              </p>
               {modelFilesStatus === null ? (
                 <p className="text-xs text-amber-700 mt-0.5">
-                  The <code className="font-mono">models_personal/</code> directory is missing. Copy{" "}
+                  The <code className="font-mono">models_personal/</code>{" "}
+                  directory is missing. Copy{" "}
                   <code className="font-mono">models_personal_example/</code> to{" "}
-                  <code className="font-mono">models_personal/</code> and fill in your resume and writing samples.
+                  <code className="font-mono">models_personal/</code> and fill
+                  in your resume and writing samples.
                 </p>
               ) : (
                 <p className="text-xs text-amber-700 mt-0.5">
-                  Missing: <span className="font-mono">{missingFiles!.join(", ")}</span>. Copy the matching files
-                  from <code className="font-mono">models_personal_example/</code> and fill in your content.
+                  Missing:{" "}
+                  <span className="font-mono">{missingFiles!.join(", ")}</span>.
+                  Copy the matching files from{" "}
+                  <code className="font-mono">models_personal_example/</code>{" "}
+                  and fill in your content.
                 </p>
               )}
             </div>
@@ -638,9 +650,18 @@ export default function App() {
       </main>
 
       <footer className="text-center text-xs text-slate-400 py-4">
-        Resume Friend — use Ollama for fully local generation
+        Resume Friend - use Ollama for fully local generation
         <br />
-        Resume Friend contributors © {new Date().getFullYear()}
+        Resume Friend by{" "}
+        <a
+          href="https://louielyn.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className=" hover:text-slate-800 underline"
+        >
+          Louielyn Mata
+        </a>{" "}
+        © {new Date().getFullYear()}
       </footer>
     </div>
   );

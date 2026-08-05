@@ -9,7 +9,12 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
-from .document_normalization import normalize_resume_bullets
+from .document_normalization import (
+    BLOCKED_SECTION_NAMES as _BLOCKED_SECTION_NAMES,
+    ENTRY_BULLET_SECTIONS as _ENTRY_BULLET_SECTIONS,
+    RESUME_SECTION_NAMES as _KNOWN_SECTION_NAMES,
+    normalize_resume_bullets,
+)
 
 
 _RESUME_FONT = "Poppins"
@@ -154,46 +159,6 @@ _CONTACT_CONTENT = re.compile(
     r"linkedin\.com|github\.com|gitlab\.com|@\S+\.\S+|\+\d[\d\s\-\.]{6,}",
     re.IGNORECASE,
 )
-
-# System-prompt section labels that the AI occasionally echoes — never treat as headers
-_BLOCKED_SECTION_NAMES = frozenset({
-    "INSTRUCTIONS", "WRITING STYLE EXAMPLES", "WRITING STYLE",
-    "TRANSCRIPT", "ANALYSIS",
-})
-
-_KNOWN_SECTION_NAMES = frozenset({
-    "PROFESSIONAL SUMMARY",
-    "CORE SKILLS",
-    "DESIGN SKILLS",
-    "TECHNICAL SKILLS",
-    "CREATIVE SKILLS",
-    "SKILLS",
-    "TOOLKIT",
-    "WORK EXPERIENCE",
-    "RELATED WORK EXPERIENCES",
-    "OTHER EXPERIENCES",
-    "EXPERIENCE",
-    "CREATIVE EXPERIENCE",
-    "EDUCATION",
-    "EDUCATIONAL ATTAINMENT",
-    "CERTIFICATIONS",
-    "CERTIFICATIONS AND AWARDS",
-    "ACHIEVEMENTS",
-    "AWARDS AND ACHIEVEMENTS",
-    "PROJECTS",
-    "NOTABLE PROJECTS",
-    "NOTABLE CLIENTS",
-})
-
-_ENTRY_BULLET_SECTIONS = frozenset({
-    "PROJECTS",
-    "NOTABLE PROJECTS",
-    "WORK EXPERIENCE",
-    "RELATED WORK EXPERIENCES",
-    "OTHER EXPERIENCES",
-    "EXPERIENCE",
-    "CREATIVE EXPERIENCE",
-})
 
 # Lines matching this pattern are system-prompt artifacts or AI meta-commentary — drop them entirely
 _ARTIFACT_PAT = re.compile(

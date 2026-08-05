@@ -10,19 +10,20 @@ HEADER BLOCK FORMATTING:
 
 Render the header in this exact sequence:
 
-  YOUR FULL NAME
-  ────────────────────────────────────────────────────────────────
-  [PRIMARY ROLE TITLE IN ALL CAPS AND BOLD — line 2]
-  [Optional secondary tagline — regular case, line 3 only if it adds positioning value]
-  your.email@example.com | +1 555 010 0000  City, Region
-  LinkedIn: https://www.linkedin.com/in/your-handle  Github: https://github.com/your-handle
+YOUR FULL NAME
+────────────────────────────────────────────────────────────────
+[PRIMARY ROLE TITLE IN ALL CAPS AND BOLD — line 2]
+[Optional secondary tagline — regular case, line 3 only if it adds positioning value]
+your.email@example.com | +1 555 010 0000 City, Region
+LinkedIn: https://www.linkedin.com/in/your-handle Github: https://github.com/your-handle
 
 Rules:
+
 - The horizontal rule (---) goes DIRECTLY UNDER THE NAME LINE — not after the contact block.
 - Name is on its own line, ALL CAPS.
 - Primary role title is ALL CAPS on the next line, immediately after the rule.
 - Contact info and links follow below the title lines. All header lines are centered.
-- For design roles only, add this line last: DESIGNER PORTFOLIO LINK  https://example.com/portfolio
+- For design roles only, add this line last: DESIGNER PORTFOLIO LINK https://example.com/portfolio
   CRITICAL: Copy the supplied portfolio URL character-for-character. Do not alter, shorten, or reformat it.
 - After the last header line (links or portfolio), leave one blank line before the body begins.
 - Do NOT add another horizontal rule between the header and PROFESSIONAL SUMMARY.
@@ -32,10 +33,12 @@ Rules:
 HORIZONTAL RULE PLACEMENT:
 
 Horizontal rules (---) appear only in these positions:
+
 1. Directly under the name in the header (see above).
 2. BETWEEN major section groups — placed before the next section header, not after the current one.
 
 Sections that are part of the same group share a block with no rule between them. Examples:
+
 - CERTIFICATIONS and ACHIEVEMENTS flow together without a rule between them.
 - DESIGN & PRODUCT SKILLS, CREATIVE LEADERSHIP & STRATEGY, and BUSINESS & CLIENT MANAGEMENT flow together as one skills group (no rules between them).
 - A rule appears before TOOLKIT (after the skills group ends).
@@ -92,26 +95,27 @@ TOOLKIT / SKILLS SECTION FORMATTING:
 
 For SOFTWARE ENGINEERING roles — format each skill category like this:
 
-  **Languages** - Javascript, Typescript, Python, Java, C++, HTML5
+**Languages** - Javascript, Typescript, Python, Java, C#, CSS, HTML5
 
-  **Database** - PostgreSQL, Google Firestore, NoSQL, MySQL, Redis
+**Database** - PostgreSQL, Google Firestore, NoSQL, MySQL, Redis
 
-  **Frameworks** - Node.JS, React, Next.JS, NestJS, Vite, Django, React Native, Expo, Prisma ORM, Firebase, Wordpress CMS, .NET Maui
+**Frameworks** - Node.JS, React, Next.JS, NestJS, Vite, Django, React Native, Expo, Prisma ORM, Firebase, Wordpress CMS, .NET Maui
 
-  **Styling** - Design Systems, Tailwind, CSS, Bootstrap
+**Styling** - Design Systems, Tailwind, Bootstrap
 
-  **Testing** Unit tests - Jest, Vitest, Django Test Suite
-  E2E tests - Playwright, Storybook
+**Testing** Unit tests - Jest, Vitest, Django Test Suite
+E2E tests - Playwright, Storybook
 
-  **UI/UX, DevOps, and Tools** - Figma, Github (Version & CI), Docker, AWS, Azure, Google Cloud Platform, Vercel, Railway, Swagger OpenAPI, SonarQube, Postman, ESLint, Datadog, Nginx, Gunicorn, JWT, Auth, VS Code, PyCharm and IntelliJ, Linux, MacOS, Analytic Tools, Notion, Jira
+**UI/UX, DevOps, and Tools** - Figma, Github (Version & CI), Docker, AWS, Azure, Google Cloud Platform, Vercel, Railway, Swagger OpenAPI, SonarQube, Postman, ESLint, Datadog, Nginx, Gunicorn, JWT, Auth, VS Code, PyCharm and IntelliJ, Linux, MacOS, Analytic Tools, Notion, Jira
 
-  **AI Tools** - ChatGPT and Codex, Github Copilot, Claude Code, Cursor IDE, MCP, Stable Diffusion, Ollama
+**AI Tools** - ChatGPT and Codex, Github Copilot, Claude Code, Cursor IDE, MCP, Stable Diffusion, Ollama
 
-  **Business and Design Tools** - Adobe Creative Suite, Blender (3D), Google's G Suites, Microsoft Office.
+**Business and Design Tools** - Adobe Creative Suite, Blender (3D), Google's G Suites, Microsoft Office.
 
-  **Currently Learning:** Go, Terraform, React Native - Native features, Maestro
+**Currently Learning:** Go, Terraform, React Native - Native features, Maestro
 
 Rules:
+
 - Bold category label and the values are on THE SAME LINE — not the label on its own line followed by a new line.
 - One blank line between each category.
 - Values wrap naturally to the next line if long — that is fine.
@@ -119,28 +123,29 @@ Rules:
 
 For DESIGN roles — TOOLKIT uses bold sub-category labels on their own lines, with values listed below each (not inline). Example:
 
-  **Design & Multimedia Tools**
-  Adobe Creative Suite (Photoshop, Illustrator, Premiere Pro, After Effects, Audition, XD)
-  Blender (3D)
-  Figma
+**Design & Multimedia Tools**
+Adobe Creative Suite (Photoshop, Illustrator, Premiere Pro, After Effects, Audition, XD)
+Blender (3D)
+Figma
 
-  **Collaboration & Business Tools**
-  Google Workspace
-  Microsoft Office
-  Notion, Jira, Trello
-  Miro and Figjam
+**Collaboration & Business Tools**
+Google Workspace
+Microsoft Office
+Notion, Jira, Trello
+Miro and Figjam
 
-  **Digital & Web Exposure**
-  HTML5, CSS3, JavaScript, TypeScript
-  React, Next.js, React Native
-  Node.js, Django REST Framework
-  REST APIs, JWT Auth
-  WordPress CMS
-  Responsive & Design Systems
-  Vite, Tailwind CSS, Bootstrap
-  Cloud & Deployment (Vercel, Railway, AWS, Azure, Google Cloud Platform)
+**Digital & Web Exposure**
+HTML5, CSS3, JavaScript, TypeScript
+React, Next.js, React Native
+Node.js, Django REST Framework
+REST APIs, JWT Auth
+WordPress CMS
+Responsive & Design Systems
+Vite, Tailwind CSS, Bootstrap
+Cloud & Deployment (Vercel, Railway, AWS, Azure, Google Cloud Platform)
 
 Rules:
+
 - Sub-category label is bold and on its own line.
 - Values listed below it, one tool or tool group per line.
 - One blank line between each sub-category group.
@@ -151,33 +156,34 @@ WORK EXPERIENCE ENTRY FORMATTING — TWO PATTERNS:
 
 Pattern A — Role leads (use when the role title or position is the primary point of interest):
 
-  ROLE TITLE IN ALL CAPS
-  **Company Name** - Context or date descriptor / Start Date - End Date
+ROLE TITLE IN ALL CAPS
+**Company Name** - Context or date descriptor / Start Date - End Date
 
-  ● Bullet with **bold key phrase** and impact
-  ● Bullet
-  ● Bullet
+● Bullet with **bold key phrase** and impact
+● Bullet
+● Bullet
 
 Example:
-  SOFTWARE ENGINEERING INTERN
-  **Newton Crypto Canada** - Summer 2025 Co-op / May 2025 - Aug 2025
+SOFTWARE ENGINEERING INTERN
+**Newton Crypto Canada** - Summer 2025 Co-op / May 2025 - Aug 2025
 
 Pattern B — Company leads (use when the company name is the primary point of interest, or when multiple roles at the same company are listed):
 
-  **Company Name,** (industry descriptor in parentheses)
-  ROLE TITLE - Start Date – End Date (employment type)
-  SECOND ROLE TITLE - Start Date – End Date (employment type)
+**Company Name,** (industry descriptor in parentheses)
+ROLE TITLE - Start Date – End Date (employment type)
+SECOND ROLE TITLE - Start Date – End Date (employment type)
 
-  ● Bullet with **bold key phrase** and impact
-  ● Bullet
-  ● Bullet
+● Bullet with **bold key phrase** and impact
+● Bullet
+● Bullet
 
 Example:
-  **Ant Savvy Creatives & Entertainment Inc.,** (360 Entertainment & Advertising Agency)
-  CREATIVE DIRECTOR - April 2021 – Oct 2024 (Fulltime) Oct 2024 - 2025 (Present Freelance)
-  SENIOR ART DIRECTOR - April 2017 – April 2018 (Fulltime) 2019 - 2020 (Freelance)
+**Ant Savvy Creatives & Entertainment Inc.,** (360 Entertainment & Advertising Agency)
+CREATIVE DIRECTOR - April 2021 – Oct 2024 (Fulltime) Oct 2024 - 2025 (Present Freelance)
+SENIOR ART DIRECTOR - April 2017 – April 2018 (Fulltime) 2019 - 2020 (Freelance)
 
 General rules for work entries:
+
 - Role titles are ALL CAPS — this is the primary visual weight, not bold separately.
 - Company names are bold.
 - Dates are on the same line as the role or company — compact and inline.
@@ -191,14 +197,15 @@ EDUCATION ENTRY FORMATTING:
 
 Format:
 
-  EDUCATIONAL ATTAINMENT
-  Institution Name                                                Year – Year
-  Degree or Program (note: Graduated with Honors / GPA if relevant)
+EDUCATIONAL ATTAINMENT
+Institution Name Year – Year
+Degree or Program (note: Graduated with Honors / GPA if relevant)
 
-  Institution Name
-  Degree or Program (note: Graduated with Honors / GPA)
+Institution Name
+Degree or Program (note: Graduated with Honors / GPA)
 
 Rules:
+
 - Section header: EDUCATIONAL ATTAINMENT (exact name).
 - Institution name left-aligned; year right-aligned or placed at the far end of the same line.
 - Degree/program on the next line, directly under the institution name (no extra indent needed).
@@ -209,13 +216,14 @@ Rules:
 
 PROJECTS SECTION FORMATTING (dev roles only):
 
-  **Project Name** - Client or Context (duration)
-  Brief description as 1–3 line prose. Mention tech stack, scope, and outcome.
+**Project Name** - Client or Context (duration)
+Brief description as 1–3 line prose. Mention tech stack, scope, and outcome.
 
-  **Project Name** - Description
-  ...
+**Project Name** - Description
+...
 
 Rules:
+
 - Project name is bold, followed by a dash and context/client on the same line.
 - Description is prose, not bullets.
 - One blank line between project entries.
@@ -258,25 +266,25 @@ COVER LETTER FORMATTING AND RULES:
 
 Structure:
 
-  Cover Letter
+Cover Letter
 
-  **To the [Hiring Team / Hiring Manager Name],**
+**To the [Hiring Team / Hiring Manager Name],**
 
-  [Opening paragraph — specific, not generic]
+[Opening paragraph — specific, not generic]
 
-  [Body paragraph — 2 to 3 concrete examples from my background matching the role]
+[Body paragraph — 2 to 3 concrete examples from my background matching the role]
 
-  [Closing paragraph — why this company or team, forward-looking]
+[Closing paragraph — why this company or team, forward-looking]
 
-  Cheers and all the best!
+Cheers and all the best!
 
-
-  Sincerely and thankfully,
-  **Your Full Name**
-  your.email@example.com
-  https://www.linkedin.com/in/your-handle
+Sincerely and thankfully,
+**Your Full Name**
+your.email@example.com
+https://www.linkedin.com/in/your-handle
 
 Rules:
+
 - "Cover Letter" is the document heading — bold, left-aligned.
 - Greeting "To the [Team]," is bold.
 - 3 to 4 short paragraphs total.
