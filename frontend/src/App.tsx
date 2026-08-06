@@ -208,6 +208,7 @@ export default function App() {
   const [modelFilesChecked, setModelFilesChecked] = useState(false);
   const [modelFilesBannerDismissed, setModelFilesBannerDismissed] =
     useState(false);
+  const [formResetKey, setFormResetKey] = useState(0);
 
   function stopGenerationTicker(captureElapsed = true) {
     if (generationIntervalRef.current !== null) {
@@ -464,19 +465,7 @@ export default function App() {
     }
   }
 
-  function handleReset() {
-    setStep(0);
-    setResult(null);
-    setError("");
-    setErrorCode("");
-    setErrorStatus(undefined);
-    setErrorHint("");
-    setGenerationFeed([]);
-    stopGenerationTicker(false);
-    setGenerationElapsedSeconds(0);
-  }
-
-  function handleClearForm() {
+  function resetForm() {
     stopGenerationTicker(false);
     setStep(0);
     setJd("");
@@ -485,6 +474,8 @@ export default function App() {
     setJobType("development");
     setMeta({ ...DEFAULT_META });
     setMetaTouched({ ...DEFAULT_META_TOUCHED });
+    setGenerating(false);
+    setExtractingMeta(false);
     setResult(null);
     setError("");
     setErrorCode("");
@@ -492,11 +483,19 @@ export default function App() {
     setErrorHint("");
     setGenerationFeed([]);
     setGenerationElapsedSeconds(0);
+    setFormResetKey((current) => current + 1);
     try {
       window.localStorage.removeItem(FORM_STORAGE_KEY);
     } catch {
       // Storage may be disabled; clearing the visible form should still work.
     }
+  }
+
+  function handleHeaderReset() {
+    if (!window.confirm("Reset the entire form and clear all saved values?")) {
+      return;
+    }
+    resetForm();
   }
 
   const missingFiles = modelFilesStatus
@@ -521,9 +520,19 @@ export default function App() {
               AI-powered resume & cover letter generator
             </p>
           </div>
-          <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">
-            Local
-          </span>
+          <nav aria-label="Form actions" className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleHeaderReset}
+              disabled={generating || extractingMeta}
+              className="px-3 py-1.5 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Reset
+            </button>
+            <span className="text-xs text-slate-400 bg-slate-100 px-3 py-1.5 rounded">
+              Local
+            </span>
+          </nav>
         </div>
       </header>
 
@@ -610,11 +619,11 @@ export default function App() {
 
           {step === 0 && (
             <StepJobInput
+              key={formResetKey}
               value={jd}
               onChange={setJd}
               companyContext={companyContext}
               onCompanyContextChange={setCompanyContext}
-              onClearForm={handleClearForm}
               onNext={() => setStep(1)}
             />
           )}
@@ -644,7 +653,7 @@ export default function App() {
             />
           )}
           {step === 3 && result && (
-            <StepResult result={result} onReset={handleReset} />
+            <StepResult result={result} onReset={resetForm} />
           )}
         </div>
       </main>

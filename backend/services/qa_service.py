@@ -42,6 +42,37 @@ _VALID_ATS_SCORE_RE = re.compile(r"(?im)^ATS_SCORE:\s*(?:100|[1-9]?\d)\s*$")
 _QA_PROMPT_FILE = "qa_prompt.md"
 _AddIssue = Callable[[str, str, QASeverity, str, str], None]
 
+_HEADER_MARKERS = frozenset(
+    {
+        "CONTACT",
+        "LINKS",
+        "LINK",
+        "PORTFOLIO",
+        "WORK_SAMPLES",
+        "WORK SAMPLES",
+        "CASE_STUDIES",
+        "CASE STUDIES",
+    }
+)
+_SECTION_GROUPS: dict[str, frozenset[str]] = {
+    "education": frozenset({"EDUCATION", "EDUCATIONAL ATTAINMENT"}),
+    "projects": frozenset({"PROJECTS", "NOTABLE PROJECTS"}),
+    "related_work": frozenset({"RELATED WORK EXPERIENCES"}),
+    "other_work": frozenset({"OTHER EXPERIENCES", "OTHER WORK EXPERIENCES"}),
+    "certificates": frozenset(
+        {"CERTIFICATIONS", "CERTIFICATIONS AND AWARDS", "CERTIFICATES"}
+    ),
+    "awards": frozenset({"ACHIEVEMENTS", "AWARDS AND ACHIEVEMENTS"}),
+}
+_CANONICAL_TRACK_SECTIONS = {
+    "education": "EDUCATION",
+    "projects": "PROJECTS",
+    "related_work": "RELATED WORK EXPERIENCES",
+    "other_work": "OTHER WORK EXPERIENCES",
+    "certificates": "CERTIFICATES",
+    "awards": "AWARDS AND ACHIEVEMENTS",
+}
+
 
 def parse_document_draft(ai_response: str) -> DocumentDraft:
     sections = {
@@ -78,6 +109,7 @@ def apply_safe_deterministic_fixes(
     target_role: str = "",
     source_resume: str = "",
     source_materials: str = "",
+    job_type: str = "",
 ) -> tuple[DocumentDraft, list[str]]:
     """Restore trusted mechanical invariants without asking an AI to infer them."""
     fixed = draft.model_copy(deep=True)
@@ -158,6 +190,16 @@ def apply_safe_deterministic_fixes(
 
     trusted_materials = source_materials or source_resume
     if trusted_materials.strip():
+        fixed.resume, header_changed = _restore_required_resume_header(
+            fixed.resume,
+            trusted_materials,
+            job_type=job_type,
+        )
+        if header_changed:
+            changes.append(
+                "Restored the track-specific resume header links from the applicant instructions."
+            )
+
         fixed.resume, resume_urls_changed = _restore_source_supported_urls(
             fixed.resume,
             trusted_materials,
@@ -191,6 +233,13 @@ def apply_safe_deterministic_fixes(
                 "Restored the source-backed AI tools category for the "
                 "development resume."
             )
+
+    fixed.resume, section_order_changed = _apply_track_section_contract(
+        fixed.resume,
+        job_type=job_type,
+    )
+    if section_order_changed:
+        changes.append(f"Applied the {job_type} resume section order.")
 
     dash_replacements = 0
     fixed.resume, resume_dashes = _normalize_em_dashes(fixed.resume)
@@ -230,6 +279,7 @@ def validate_draft(
     owner_name: str,
     source_resume: str,
     source_materials: str,
+    job_type: str = "",
 ) -> list[QAIssue]:
     issues: list[QAIssue] = []
 
@@ -259,11 +309,18 @@ def validate_draft(
         cover_letter=cover_letter,
         owner_name=owner_name,
         source_materials=source_materials,
+        job_type=job_type,
         add=add,
     )
     source_requirements = _validate_truthfulness(
         resume=resume,
         source_resume=source_resume,
+        add=add,
+    )
+    _validate_track_section_contract(
+        resume=resume,
+        source_resume=source_resume,
+        job_type=job_type,
         add=add,
     )
     _validate_formatting(
@@ -290,6 +347,7 @@ def _validate_structure(
     cover_letter: str,
     owner_name: str,
     source_materials: str,
+    job_type: str,
     add: _AddIssue,
 ) -> None:
 
@@ -303,10 +361,9 @@ def _validate_structure(
                 f"The resume must contain a populated {marker} line.",
             )
 
-    required_header_lines = _extract_required_block(
+    required_header_lines = _required_resume_header_lines(
         source_materials,
-        "RESUME HEADER - REQUIRED EXACT VALUES:",
-        "END REQUIRED RESUME HEADER",
+        job_type=job_type,
     )
     missing_header_lines = [
         line
@@ -722,6 +779,269 @@ def _extract_required_block(text: str, start: str, end: str) -> list[str]:
     return [line.strip() for line in match.group(1).splitlines() if line.strip()]
 
 
+def _required_resume_header_lines(text: str, *, job_type: str) -> list[str]:
+    required = _extract_required_block(
+        text,
+        "RESUME HEADER - REQUIRED EXACT VALUES:",
+        "END REQUIRED RESUME HEADER",
+    )
+    normalized_job_type = job_type.strip().upper()
+    if normalized_job_type in {"DESIGN", "DEVELOPMENT"}:
+        required.extend(
+            _extract_required_block(
+                text,
+                f"{normalized_job_type} RESUME HEADER - REQUIRED EXACT VALUES:",
+                f"END {normalized_job_type} RESUME HEADER",
+            )
+        )
+    return list(dict.fromkeys(required))
+
+
+def _header_marker_name(line: str) -> str | None:
+    match = re.match(r"^\s*([A-Z][A-Z_ ]+?)\s*:", line, re.IGNORECASE)
+    if match is None:
+        return None
+    marker = re.sub(r"\s+", " ", match.group(1).strip().upper())
+    if marker in _HEADER_MARKERS:
+        return marker
+    marker_with_underscores = marker.replace(" ", "_")
+    return marker_with_underscores if marker_with_underscores in _HEADER_MARKERS else None
+
+
+def _restore_required_resume_header(
+    text: str,
+    source_materials: str,
+    *,
+    job_type: str,
+) -> tuple[str, bool]:
+    required = _required_resume_header_lines(
+        source_materials,
+        job_type=job_type,
+    )
+    if not required:
+        return text.strip(), False
+
+    lines = text.strip().splitlines()
+    first_section = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if _resume_section_name(line) is not None
+        ),
+        len(lines),
+    )
+    header = [
+        line
+        for line in lines[:first_section]
+        if _header_marker_name(line) is None
+    ]
+    body = lines[first_section:]
+
+    identity_index = max(
+        (
+            index
+            for index, line in enumerate(header)
+            if re.match(r"^\s*(?:NAME|ROLE|TAGLINE)\s*:", line, re.IGNORECASE)
+        ),
+        default=len(header) - 1,
+    )
+    insertion_index = identity_index + 1
+    while insertion_index < len(header) and not header[insertion_index].strip():
+        header.pop(insertion_index)
+    header[insertion_index:insertion_index] = [*required, ""]
+
+    restored = _collapse_blank_lines([*header, *body])
+    return restored, restored != text.strip()
+
+
+def _section_group(section_name: str) -> str | None:
+    for group, names in _SECTION_GROUPS.items():
+        if section_name in names:
+            return group
+    return None
+
+
+def _resume_section_blocks(text: str) -> tuple[list[str], list[tuple[str, list[str]]]]:
+    lines = text.strip().splitlines()
+    headings = [
+        (index, section)
+        for index, line in enumerate(lines)
+        if (section := _resume_section_name(line)) is not None
+    ]
+    if not headings:
+        return lines, []
+
+    first_heading = headings[0][0]
+    prefix = lines[:first_heading]
+    while prefix and (not prefix[-1].strip() or prefix[-1].strip() == "---"):
+        prefix.pop()
+
+    blocks: list[tuple[str, list[str]]] = []
+    for position, (start, section_name) in enumerate(headings):
+        end = headings[position + 1][0] if position + 1 < len(headings) else len(lines)
+        block = lines[start:end]
+        while block and (not block[-1].strip() or block[-1].strip() == "---"):
+            block.pop()
+        blocks.append((section_name, block))
+    return prefix, blocks
+
+
+def _merge_section_group(
+    blocks: list[tuple[str, list[str]]],
+    group: str,
+) -> tuple[str, list[str]] | None:
+    matching = [block for section, block in blocks if _section_group(section) == group]
+    if not matching:
+        return None
+
+    merged = [_CANONICAL_TRACK_SECTIONS[group]]
+    for block in matching:
+        content = list(block[1:])
+        while content and not content[0].strip():
+            content.pop(0)
+        while content and not content[-1].strip():
+            content.pop()
+        if content:
+            if len(merged) > 1:
+                merged.append("")
+            merged.extend(content)
+    return _CANONICAL_TRACK_SECTIONS[group], merged
+
+
+def _render_resume_section_blocks(
+    prefix: list[str],
+    blocks: list[tuple[str, list[str]]],
+) -> str:
+    rendered_blocks = ["\n".join(block).strip() for _, block in blocks if block]
+    sections = "\n\n---\n\n".join(rendered_blocks)
+    header = "\n".join(prefix).strip()
+    if header and sections:
+        return f"{header}\n\n{sections}".strip()
+    return (header or sections).strip()
+
+
+def _apply_track_section_contract(text: str, *, job_type: str) -> tuple[str, bool]:
+    normalized_job_type = job_type.strip().lower()
+    if normalized_job_type not in {"design", "development"}:
+        return text.strip(), False
+
+    prefix, blocks = _resume_section_blocks(text)
+    if not blocks:
+        return text.strip(), False
+
+    if normalized_job_type == "design":
+        moved_groups = {"education", "certificates", "awards"}
+        ordered_groups = ("education", "awards")
+    else:
+        moved_groups = set(_CANONICAL_TRACK_SECTIONS)
+        ordered_groups = (
+            "education",
+            "projects",
+            "related_work",
+            "other_work",
+            "certificates",
+            "awards",
+        )
+
+    reordered = [
+        (section, block)
+        for section, block in blocks
+        if _section_group(section) not in moved_groups
+    ]
+    for group in ordered_groups:
+        merged = _merge_section_group(blocks, group)
+        if merged is not None:
+            reordered.append(merged)
+
+    restored = _render_resume_section_blocks(prefix, reordered)
+    return restored, restored != text.strip()
+
+
+def _source_section_groups(source_resume: str) -> set[str]:
+    groups: set[str] = set()
+    for line in source_resume.splitlines():
+        heading = re.match(r"^##\s+(.+?)\s*$", line.strip())
+        if heading is None:
+            continue
+        normalized = _normalized_match_text(heading.group(1)).upper()
+        section_name = next(
+            (
+                section
+                for section in _RESUME_SECTION_NAMES
+                if _normalized_match_text(section).upper() == normalized
+            ),
+            None,
+        )
+        if section_name and (group := _section_group(section_name)):
+            groups.add(group)
+    return groups
+
+
+def _validate_track_section_contract(
+    *,
+    resume: str,
+    source_resume: str,
+    job_type: str,
+    add: _AddIssue,
+) -> None:
+    normalized_job_type = job_type.strip().lower()
+    if normalized_job_type not in {"design", "development"}:
+        return
+
+    _, blocks = _resume_section_blocks(resume)
+    block_groups = [_section_group(section) for section, _ in blocks]
+    generated_groups = [group for group in block_groups if group is not None]
+    source_groups = _source_section_groups(source_resume)
+
+    if normalized_job_type == "design":
+        if "certificates" in generated_groups:
+            add(
+                "RESUME_DESIGN_CERTIFICATES_PRESENT",
+                "structure",
+                QASeverity.ERROR,
+                "resume",
+                "Design resumes must omit the certificates or certifications section.",
+            )
+        required_order = [
+            group for group in ("education", "awards") if group in source_groups
+        ]
+    else:
+        required_order = [
+            group
+            for group in (
+                "education",
+                "projects",
+                "related_work",
+                "other_work",
+                "certificates",
+                "awards",
+            )
+            if group in source_groups
+        ]
+
+    missing = [group for group in required_order if group not in generated_groups]
+    if missing:
+        add(
+            "RESUME_TRACK_SECTION_MISSING",
+            "structure",
+            QASeverity.ERROR,
+            "resume",
+            "The resume is missing required track section(s): "
+            + ", ".join(_CANONICAL_TRACK_SECTIONS[group] for group in missing),
+        )
+        return
+
+    if required_order and block_groups[-len(required_order):] != required_order:
+        add(
+            "RESUME_TRACK_SECTION_ORDER_INVALID",
+            "structure",
+            QASeverity.ERROR,
+            "resume",
+            "The final resume sections must be ordered as: "
+            + ", ".join(_CANONICAL_TRACK_SECTIONS[group] for group in required_order),
+        )
+
+
 def _plain_text(text: str) -> str:
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"[*_`~#]", "", text)
@@ -887,7 +1207,7 @@ def _restore_development_reference_sections(
     other = _source_work_reference_block(
         source_resume,
         {"Other Experience", "Other Experiences"},
-        "OTHER EXPERIENCES",
+        "OTHER WORK EXPERIENCES",
     )
     if not projects or not related or not other:
         return text.strip(), False
@@ -899,6 +1219,7 @@ def _restore_development_reference_sections(
         "NOTABLE PROJECTS",
         "RELATED WORK EXPERIENCES",
         "OTHER EXPERIENCES",
+        "OTHER WORK EXPERIENCES",
     }
     spans: list[tuple[int, int]] = []
     index = 0
@@ -1129,8 +1450,8 @@ def _required_experience_sections(source_resume: str) -> list[str]:
             if "RELATED WORK EXPERIENCES" not in required:
                 required.append("RELATED WORK EXPERIENCES")
         elif normalized in {"other experience", "other experiences"}:
-            if "OTHER EXPERIENCES" not in required:
-                required.append("OTHER EXPERIENCES")
+            if "OTHER WORK EXPERIENCES" not in required:
+                required.append("OTHER WORK EXPERIENCES")
     return required
 
 

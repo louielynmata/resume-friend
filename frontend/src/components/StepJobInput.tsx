@@ -6,7 +6,6 @@ interface Props {
   onChange: (text: string) => void;
   companyContext: string;
   onCompanyContextChange: (text: string) => void;
-  onClearForm: () => void;
   onNext: () => void;
 }
 
@@ -15,7 +14,6 @@ export function StepJobInput({
   onChange,
   companyContext,
   onCompanyContextChange,
-  onClearForm,
   onNext,
 }: Props) {
   const [mode, setMode] = useState<"text" | "url">("text");
@@ -60,18 +58,6 @@ export function StepJobInput({
     onCompanyContextChange("");
     setCompanyUrl("");
     setCompanyError("");
-  }
-
-  function handleClearForm() {
-    if (!window.confirm("Clear all saved job and application form values?")) {
-      return;
-    }
-    setMode("text");
-    setUrl("");
-    setScrapeError("");
-    setCompanyUrl("");
-    setCompanyError("");
-    onClearForm();
   }
 
   return (
@@ -197,14 +183,7 @@ export function StepJobInput({
         {companyError && <p className="text-red-500 text-xs">{companyError}</p>}
       </div>
 
-      <div className="flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={handleClearForm}
-          className="px-4 py-2 text-red-600 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-50"
-        >
-          Clear Form
-        </button>
+      <div className="flex items-center justify-end">
         <button
           type="button"
           onClick={onNext}

@@ -366,6 +366,129 @@ https://github.com/alex
         self.assertNotIn("Sincerely,\nAlex\n", fixed.cover_letter)
         self.assertIn("cover-letter sign-off", " ".join(changes))
 
+    def test_safe_fixes_apply_design_header_and_section_contract(self):
+        instructions = """RESUME HEADER - REQUIRED EXACT VALUES:
+CONTACT: alex@example.com | +1 555 010 0000 | Calgary, AB
+LINKS: alex.example | linkedin.com/in/alex | github.com/alex
+END REQUIRED RESUME HEADER
+
+DESIGN RESUME HEADER - REQUIRED EXACT VALUES:
+WORK_SAMPLES: [Design Portfolio (Reel and PDF)](https://drive.example/portfolio) | [Case Studies and Product Work](https://figma.example/case-studies)
+END DESIGN RESUME HEADER"""
+        draft = valid_draft()
+        draft.resume += """
+
+EDUCATIONAL ATTAINMENT
+Example University | 2020
+Design Diploma
+
+CERTIFICATIONS
+● Example Certificate
+
+ACHIEVEMENTS
+● Example Award
+
+WORK EXPERIENCE
+PRODUCT DESIGNER - 2020 - Present
+Example Studio
+● Built accessible interfaces.
+"""
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_materials=instructions,
+            job_type="design",
+        )
+        fixed_again, second_changes = apply_safe_deterministic_fixes(
+            fixed,
+            owner_name="Alex Example",
+            source_materials=instructions,
+            job_type="design",
+        )
+
+        self.assertIn(
+            "WORK_SAMPLES: [Design Portfolio (Reel and PDF)]",
+            fixed.resume,
+        )
+        self.assertNotIn("CERTIFICATIONS", fixed.resume)
+        self.assertLess(fixed.resume.index("WORK EXPERIENCE"), fixed.resume.index("EDUCATION"))
+        self.assertLess(
+            fixed.resume.index("EDUCATION"),
+            fixed.resume.index("AWARDS AND ACHIEVEMENTS"),
+        )
+        self.assertIn("Applied the design resume section order", " ".join(changes))
+        self.assertEqual(fixed_again.model_dump(), fixed.model_dump())
+        self.assertEqual(second_changes, [])
+
+    def test_safe_fixes_apply_development_header_and_section_contract(self):
+        instructions = """RESUME HEADER - REQUIRED EXACT VALUES:
+CONTACT: alex@example.com | +1 555 010 0000 | Calgary, AB
+LINKS: alex.example | linkedin.com/in/alex | github.com/alex
+END REQUIRED RESUME HEADER
+
+DEVELOPMENT RESUME HEADER - REQUIRED EXACT VALUES:
+WORK_SAMPLES: [Case Studies and Product Work](https://figma.example/case-studies)
+END DEVELOPMENT RESUME HEADER"""
+        draft = valid_draft()
+        draft.resume += """
+
+ACHIEVEMENTS
+● Example Award
+
+CERTIFICATIONS
+● Example Certificate
+
+OTHER EXPERIENCES
+SALESPERSON - 2021 - 2022
+Example Retail
+● Supported customers.
+
+RELATED WORK EXPERIENCES
+SOFTWARE ENGINEER - 2023 - Present
+Example Labs
+● Built reliable systems.
+
+PROJECTS
+PROJECT: Example App | 2023
+● Built an application.
+
+EDUCATIONAL ATTAINMENT
+Example University | 2020
+Software Development Diploma
+"""
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_materials=instructions,
+            job_type="development",
+        )
+        fixed_again, second_changes = apply_safe_deterministic_fixes(
+            fixed,
+            owner_name="Alex Example",
+            source_materials=instructions,
+            job_type="development",
+        )
+
+        self.assertIn(
+            "WORK_SAMPLES: [Case Studies and Product Work]",
+            fixed.resume,
+        )
+        ordered_sections = [
+            "EDUCATION",
+            "PROJECTS",
+            "RELATED WORK EXPERIENCES",
+            "OTHER WORK EXPERIENCES",
+            "CERTIFICATES",
+            "AWARDS AND ACHIEVEMENTS",
+        ]
+        positions = [fixed.resume.index(section) for section in ordered_sections]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("Applied the development resume section order", " ".join(changes))
+        self.assertEqual(fixed_again.model_dump(), fixed.model_dump())
+        self.assertEqual(second_changes, [])
+
     def test_safe_fixes_add_missing_signoff_name_before_contact(self):
         draft = valid_draft()
         draft.cover_letter = draft.cover_letter.replace("Alex Example\n", "")

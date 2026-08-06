@@ -90,6 +90,7 @@ async def run_qa_pipeline(
         target_role=position,
         source_resume=source_resume,
         source_materials=source_materials,
+        job_type=job_type,
     )
     _extend_unique(changes_made, deterministic_changes)
 
@@ -98,6 +99,7 @@ async def run_qa_pipeline(
         owner_name=owner_name,
         source_resume=source_resume,
         source_materials=source_materials,
+        job_type=job_type,
     )
 
     while True:
@@ -154,6 +156,7 @@ async def run_qa_pipeline(
                 target_role=position,
                 source_resume=source_resume,
                 source_materials=source_materials,
+                job_type=job_type,
             )
             iterations += 1
             _extend_unique(changes_made, correction.changes_made)
@@ -165,6 +168,7 @@ async def run_qa_pipeline(
             owner_name=owner_name,
             source_resume=source_resume,
             source_materials=source_materials,
+            job_type=job_type,
         )
         if _blocking(pending_issues):
             continue

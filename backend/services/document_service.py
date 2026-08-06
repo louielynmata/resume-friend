@@ -23,6 +23,13 @@ _RESUME_ACCENT = RGBColor(0x20, 0x59, 0x68)
 _COVER_FONT = "Work Sans"
 _COVER_BODY_SIZE = 12
 
+_HEADER_LINK_MARKER = re.compile(
+    r"^\s*\[?(?:LINKS?|PORTFOLIO|DESIGNER PORTFOLIO(?:\s+LINK)?|"
+    r"WORK[_ ]SAMPLES?|CASE[_ ]STUDIES)\s*:",
+    re.IGNORECASE,
+)
+_MARKDOWN_LINK_PAT = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
+
 
 async def build_documents(
     ai_response: str,
@@ -119,8 +126,10 @@ def _normalize_document_text(content: str) -> list[str]:
         if _META_COMMENTARY_PAT.search(line):  # drop AI self-commentary embedded in body text
             continue
         # Bullet markers were canonicalized before line-level rendering.
-        # Unwrap markdown links
-        line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", line)
+        # Preserve labeled links in structured header markers so the builder can
+        # render short, human-readable hyperlink text. Body links remain plain.
+        if not _HEADER_LINK_MARKER.match(line):
+            line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", line)
         # Strip markdown formatting underscores/backticks/tildes — but KEEP asterisks for inline bold.
         # Only strip underscores at word boundaries (markdown _italic_), not inside URLs/words.
         line = re.sub(r"(?<![a-zA-Z0-9])_+(?![a-zA-Z0-9])|[`~]+", "", line)
@@ -151,7 +160,8 @@ _DATE_PAT = re.compile(
 
 _CONTACT_PREFIX = re.compile(
     r"^(email|phone|tel|mobile|location|city|address|"
-    r"linkedin|github|gitlab|portfolio|website|url|links?)\s*[:\-]\s*",
+    r"linkedin|github|gitlab|portfolio|website|url|links?|"
+    r"work[_ ]samples?|case[_ ]studies)\s*[:\-]\s*",
     re.IGNORECASE,
 )
 
@@ -257,7 +267,12 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
     if m:
         return "contact", m.group(1).strip()
 
-    m = re.match(r"^\[?(?:LINKS?|PORTFOLIO|DESIGNER PORTFOLIO(?:\s+LINK)?)\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
+    m = re.match(
+        r"^\[?(?:LINKS?|PORTFOLIO|DESIGNER PORTFOLIO(?:\s+LINK)?|"
+        r"WORK[_ ]SAMPLES?|CASE[_ ]STUDIES)\s*:\s*(.+?)\]?$",
+        clean,
+        re.IGNORECASE,
+    )
     if m:
         # Keep the full line for DESIGNER PORTFOLIO so the label stays visible in the rendered doc
         if re.match(r"^\[?DESIGNER PORTFOLIO", clean, re.IGNORECASE):
@@ -401,13 +416,43 @@ def _add_contact_line(
     font_family: str = _RESUME_FONT,
 ) -> None:
     """Render a contact/links line, converting URL-shaped tokens to hyperlinks."""
-    segments = _URL_LINK_PAT.split(text)
-    for seg in segments:
-        if not seg:
+    position = 0
+    for labeled_match in _MARKDOWN_LINK_PAT.finditer(text):
+        _add_bare_contact_links(
+            paragraph,
+            text[position:labeled_match.start()],
+            size,
+            font_family=font_family,
+        )
+        _add_hyperlink(
+            paragraph,
+            labeled_match.group(1),
+            labeled_match.group(2),
+            size,
+            font_family=font_family,
+        )
+        position = labeled_match.end()
+    _add_bare_contact_links(
+        paragraph,
+        text[position:],
+        size,
+        font_family=font_family,
+    )
+
+
+def _add_bare_contact_links(
+    paragraph,
+    text: str,
+    size: int | float,
+    *,
+    font_family: str,
+) -> None:
+    for segment in _URL_LINK_PAT.split(text):
+        if not segment:
             continue
-        if _URL_LINK_PAT.fullmatch(seg):
-            url = _ensure_url(seg)
-            display = _URL_LABELS.get(url, seg)
+        if _URL_LINK_PAT.fullmatch(segment):
+            url = _ensure_url(segment)
+            display = _URL_LABELS.get(url, segment)
             _add_hyperlink(
                 paragraph,
                 display,
@@ -416,7 +461,7 @@ def _add_contact_line(
                 font_family=font_family,
             )
         else:
-            run = paragraph.add_run(seg)
+            run = paragraph.add_run(segment)
             _set_run_font(run, size=size, font_family=font_family)
 
 

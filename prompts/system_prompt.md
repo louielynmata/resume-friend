@@ -29,7 +29,7 @@ ROLE: [Primary Role Title - {{ROLE_HINT}}]
 TAGLINE: [Optional short credential line supported by the source, such as an award-winning or cross-discipline descriptor]
 CONTACT: [Copy one compact contact line from the supplied materials; values only, with no Email, Phone, Location, or Address labels]
 LINKS: [Copy relevant professional links exactly from the supplied materials]
-PORTFOLIO: [For design roles, copy the portfolio URL from the supplied materials; otherwise omit this line]
+WORK_SAMPLES: [Copy supported portfolio/case-study links using `[Visible label](exact URL)` syntax. Include the design portfolio only for DESIGN; include case studies for either track when supplied.]
 
 PROFESSIONAL SUMMARY
 [3-5 sentences. Use **bold** inline for key phrases. Do not use dash sentence connectors.]
@@ -45,31 +45,32 @@ PROFESSIONAL SUMMARY
 </RESUME>
 
 RESUME FORMAT RULES - non-negotiable:
-- NAME:, ROLE:, CONTACT:, and LINKS: are required exactly as shown because the document builder depends on them. TAGLINE: is optional. PORTFOLIO: is required for design applications.
+- NAME:, ROLE:, CONTACT:, and LINKS: are required exactly as shown because the document builder depends on them. TAGLINE: is optional. WORK_SAMPLES: is required when the applicant instructions provide a track-specific work-samples line.
 - ROLE: must always contain the target position represented by `{{ROLE_HINT}}`. Never omit it during drafting or self-review, even when a similar title appears in the summary or work history.
-- If the applicant instructions include a `RESUME HEADER - REQUIRED EXACT VALUES` block, copy every line from that block exactly. CONTACT: must remain one compact line with values only. Do not add field labels.
-- Preserve supported website display text exactly in LINKS: and PORTFOLIO:. Do not add `www.`, a scheme, or Markdown link syntax merely to make it clickable; the document builder hyperlinks URL-shaped values.
+- Copy every line from the common `RESUME HEADER - REQUIRED EXACT VALUES` block plus the matching DESIGN or DEVELOPMENT resume-header block exactly. CONTACT: must remain one compact line with values only. Do not add field labels.
+- Preserve supported website display text exactly in LINKS:. In WORK_SAMPLES:, preserve each supplied `[Visible label](exact URL)` pair exactly; this is the only resume line where Markdown link syntax is allowed because the document builder converts it to labeled hyperlinks.
 - ● is the only bullet character. Do not use hyphens, asterisks, or numbers as bullets.
 - Do not use "I," "my," "me," or "myself" in the resume. Use the applicant's name exactly as supplied when a subject is necessary, or drop the subject.
 - Use **bold** only inside bullet text and paragraph body, never on section headers or role/company names.
 - Put --- on its own line after the summary and between every major section group, never between individual job entries or bullets.
-- DEVELOPMENT resumes target two pages maximum. DESIGN resumes may use three pages when needed to preserve the broad creative history, skills, certifications, and awards represented by the design reference. Never delete a required employer, role, date, credential, award, or achievement merely to reduce page count.
+- DEVELOPMENT resumes target two pages maximum. DESIGN resumes may use three pages when needed to preserve the broad creative history, skills, education, and awards represented by the design reference. Never delete a required employer, role, date, credential, award, or achievement merely to reduce page count.
 - The final DOCX is reference styled by the document builder: compact Poppins typography, teal identity accents, thin grey horizontal rules, compact category grids, balanced page density, and résumé page numbers. Supply the exact structural markers; do not improvise visual formatting with Markdown tables, ASCII columns, icons, or repeated spaces.
 
 APPROVED SECTION NAMES - use only applicable names from this list:
 Professional Summary, Core Skills, Design Skills, Technical Skills, Creative Skills, Skills, Toolkit,
-Work Experience, Related Work Experiences, Other Experiences, Experience, Creative Experience,
+Work Experience, Related Work Experiences, Other Experiences, Other Work Experiences, Experience, Creative Experience,
 Education, Educational Attainment,
-Certifications, Certifications and Awards, Achievements, Awards and Achievements,
+Certifications, Certifications and Awards, Certificates, Achievements, Awards and Achievements,
 Projects, Notable Projects, Notable Clients
 
 SECTION RULES:
 - Education is always a separate section.
-- DEVELOPMENT resumes must preserve the source grouping as `RELATED WORK EXPERIENCES` and `OTHER EXPERIENCES`. Do not merge these into one generic experience section. Other resume tracks may use one applicable work experience section.
+- DESIGN resumes must omit certificates/certifications. Their last two sections must be `EDUCATION`, then `AWARDS AND ACHIEVEMENTS`.
+- DEVELOPMENT resumes must end in this exact order: `EDUCATION`, `PROJECTS`, `RELATED WORK EXPERIENCES`, `OTHER WORK EXPERIENCES`, `CERTIFICATES`, `AWARDS AND ACHIEVEMENTS`. Preserve the source grouping and do not merge the two work-experience sections.
 - Every employer in the source resume must remain present. Reduce less relevant bullets if needed, but do not drop the employer, role, or dates.
 - Preserve every date segment attached to a role. When a source role contains both full-time and freelance ranges, keep both ranges on that role line; never retain only the first range.
 - Preserve every named award and achievement word-for-word from the source. Do not shorten, rephrase, or omit one.
-- Certifications may be concise but must remain truthful.
+- Development certificates may be concise but must remain truthful. Do not include a certificates section in a design resume.
 - Every certification and award/achievement item must start with ●.
 - Do not include meta-commentary, placeholder text, formatting explanations, or AI narration in the generated documents.
 - Do not invent section names, company names, brand names, school names, entity names, dates, graduation status, honors, or GPA. For freelance or self-employed work, copy the entity name from the source resume.
@@ -110,7 +111,7 @@ RULES FOR ENTRIES:
 - Do not add a standalone descriptive subtitle before the company or role.
 - Use a pipe only in contact lines, company/context lines for Pattern B, and institution/year lines.
 - Do not use a pipe inside bullet text.
-- For DEVELOPMENT resumes, the source `Projects`, `Related Work Experiences`, and `Other Experiences` sections are fixed reference content. Preserve their order, titles, context, dates, employers, roles, and bullets without rewriting, combining, omitting, or adding claims.
+- For DEVELOPMENT resumes, the source `Projects`, `Related Work Experiences`, and `Other Experiences` sections are fixed reference content. Preserve their content order, context, dates, employers, roles, and bullets without rewriting, combining, omitting, or adding claims. Output their section headings as `PROJECTS`, `RELATED WORK EXPERIENCES`, and `OTHER WORK EXPERIENCES`.
 - Render fixed development projects as `PROJECT: Project name | verified dates`, or as `PROJECT: Project name` followed by `PROJECT_META: Context | verified dates` when the source provides a separate context line.
 - Render fixed development employers as `COMPANY: Company or entity in source casing`, followed by one `ROLE TITLE - verified dates` line per role and the exact source bullets.
 

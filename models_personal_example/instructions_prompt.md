@@ -14,8 +14,9 @@ YOUR FULL NAME
 ────────────────────────────────────────────────────────────────
 [PRIMARY ROLE TITLE IN ALL CAPS AND BOLD — line 2]
 [Optional secondary tagline — regular case, line 3 only if it adds positioning value]
-your.email@example.com | +1 555 010 0000 City, Region
-LinkedIn: https://www.linkedin.com/in/your-handle Github: https://github.com/your-handle
+your.email@example.com | +1 555 010 0000 | City, Region
+your-site.example | linkedin.com/in/your-handle | github.com/your-handle
+[Design Portfolio (Reel and PDF)](https://example.com/design-portfolio) | [Case Studies and Product Work](https://example.com/case-studies)
 
 Rules:
 
@@ -23,8 +24,7 @@ Rules:
 - Name is on its own line, ALL CAPS.
 - Primary role title is ALL CAPS on the next line, immediately after the rule.
 - Contact info and links follow below the title lines. All header lines are centered.
-- For design roles only, add this line last: DESIGNER PORTFOLIO LINK https://example.com/portfolio
-  CRITICAL: Copy the supplied portfolio URL character-for-character. Do not alter, shorten, or reformat it.
+- Add a final labeled work-samples line. Include Design Portfolio (Reel and PDF) only for design roles. Include Case Studies and Product Work for design and development roles. Copy every supplied URL character-for-character.
 - After the last header line (links or portfolio), leave one blank line before the body begins.
 - Do NOT add another horizontal rule between the header and PROFESSIONAL SUMMARY.
 
@@ -39,11 +39,11 @@ Horizontal rules (---) appear only in these positions:
 
 Sections that are part of the same group share a block with no rule between them. Examples:
 
-- CERTIFICATIONS and ACHIEVEMENTS flow together without a rule between them.
+- DEVELOPMENT CERTIFICATES and AWARDS AND ACHIEVEMENTS are separate final sections. DESIGN resumes omit certificates.
 - DESIGN & PRODUCT SKILLS, CREATIVE LEADERSHIP & STRATEGY, and BUSINESS & CLIENT MANAGEMENT flow together as one skills group (no rules between them).
 - A rule appears before TOOLKIT (after the skills group ends).
-- A rule appears before WORK EXPERIENCES (after ACHIEVEMENTS ends).
-- On the software engineering resume, a rule appears between every major named section (after PROFESSIONAL SUMMARY, after TOOLKIT AND TECHNICAL SKILLS, after EDUCATIONAL ATTAINMENT, after PROJECTS, before RELATED WORK EXPERIENCES, before CERTIFICATIONS).
+- A rule appears before each major named section.
+- On the software engineering resume, use the exact final sequence EDUCATION, PROJECTS, RELATED WORK EXPERIENCES, OTHER WORK EXPERIENCES, CERTIFICATES, AWARDS AND ACHIEVEMENTS.
 
 When in doubt: use a rule before any section that starts a new thematic group. Never put a rule directly after a section header label.
 
@@ -63,19 +63,18 @@ SECTION HEADER FORMATTING:
   BUSINESS & CLIENT MANAGEMENT
   TOOLKIT
   WORK EXPERIENCES
-  EDUCATIONAL ATTAINMENT
-  CERTIFICATIONS
-  ACHIEVEMENTS
+  EDUCATION
+  AWARDS AND ACHIEVEMENTS
 
   For software engineering / development roles:
   PROFESSIONAL SUMMARY
   TOOLKIT and TECHNICAL SKILLS
-  EDUCATIONAL ATTAINMENT
+  EDUCATION
   PROJECTS
   RELATED WORK EXPERIENCES
-  OTHER EXPERIENCES
-  CERTIFICATIONS
-  ACHIEVEMENTS
+  OTHER WORK EXPERIENCES
+  CERTIFICATES
+  AWARDS AND ACHIEVEMENTS
 
 ---
 
@@ -197,7 +196,7 @@ EDUCATION ENTRY FORMATTING:
 
 Format:
 
-EDUCATIONAL ATTAINMENT
+EDUCATION
 Institution Name Year – Year
 Degree or Program (note: Graduated with Honors / GPA if relevant)
 
@@ -206,7 +205,7 @@ Degree or Program (note: Graduated with Honors / GPA)
 
 Rules:
 
-- Section header: EDUCATIONAL ATTAINMENT (exact name).
+- Section header: EDUCATION (exact name).
 - Institution name left-aligned; year right-aligned or placed at the far end of the same line.
 - Degree/program on the next line, directly under the institution name (no extra indent needed).
 - Blank line between each education entry.

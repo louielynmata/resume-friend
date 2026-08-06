@@ -384,6 +384,40 @@ LINKS: alex.example
             self.assertIn("https://alex.example/", hyperlink_targets)
             self.assertNotIn("https://example.com", hyperlink_targets)
 
+    def test_resume_renders_centered_labeled_work_sample_hyperlinks(self):
+        portfolio_url = "https://drive.example/design-portfolio"
+        case_studies_url = "https://figma.example/case-studies"
+        content = f"""NAME: Alex Example
+ROLE: Product Designer
+CONTACT: alex@example.com | +1 555 010 0000 | Calgary, AB
+LINKS: alex.example | linkedin.com/in/alex | github.com/alex
+WORK_SAMPLES: [Design Portfolio (Reel and PDF)]({portfolio_url}) | [Case Studies and Product Work]({case_studies_url})
+
+PROFESSIONAL SUMMARY
+Designer focused on accessible digital experiences.
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(content, path)
+            document = Document(path)
+            work_samples = paragraph_starting_with(
+                document,
+                "Design Portfolio (Reel and PDF)",
+            )
+            hyperlink_targets = {
+                relationship.target_ref
+                for relationship in document.part.rels.values()
+                if relationship.reltype == RT.HYPERLINK
+            }
+
+            self.assertEqual(
+                work_samples.text,
+                "Design Portfolio (Reel and PDF) | Case Studies and Product Work",
+            )
+            self.assertEqual(work_samples.alignment, 1)
+            self.assertIn(portfolio_url, hyperlink_targets)
+            self.assertIn(case_studies_url, hyperlink_targets)
+
 
 if __name__ == "__main__":
     unittest.main()
