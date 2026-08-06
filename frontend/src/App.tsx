@@ -4,6 +4,10 @@ import { StepJobInput } from "./components/StepJobInput";
 import { StepAIConfig } from "./components/StepAIConfig";
 import { StepJobMeta } from "./components/StepJobMeta";
 import { StepResult } from "./components/StepResult";
+import {
+  notifyWhenGenerationCompletes,
+  requestDesktopNotificationPermission,
+} from "./utils/desktop-notification";
 import type {
   AIProvider,
   GenerateResult,
@@ -408,30 +412,34 @@ export default function App() {
     setErrorCode("");
     setErrorStatus(undefined);
     setErrorHint("");
+    void requestDesktopNotificationPermission();
     const generationId =
       typeof window.crypto.randomUUID === "function"
         ? window.crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     startGenerationTicker(generationId);
     try {
-      const res = await api.generate({
-        generation_id: generationId,
-        job_description: jd,
-        ai_provider: aiProvider,
-        job_type: jobType,
-        position: meta.position,
-        company: meta.company,
-        location: meta.location || undefined,
-        salary_annual: meta.salary_annual
-          ? Number.parseFloat(meta.salary_annual)
-          : undefined,
-        salary_hourly: meta.salary_hourly
-          ? Number.parseFloat(meta.salary_hourly)
-          : undefined,
-        date_job_posted: meta.date_job_posted || undefined,
-        contact_email: meta.contact_email || undefined,
-        company_context: companyContext || undefined,
-      });
+      const res = await notifyWhenGenerationCompletes(
+        api.generate({
+          generation_id: generationId,
+          job_description: jd,
+          ai_provider: aiProvider,
+          job_type: jobType,
+          position: meta.position,
+          company: meta.company,
+          location: meta.location || undefined,
+          salary_annual: meta.salary_annual
+            ? Number.parseFloat(meta.salary_annual)
+            : undefined,
+          salary_hourly: meta.salary_hourly
+            ? Number.parseFloat(meta.salary_hourly)
+            : undefined,
+          date_job_posted: meta.date_job_posted || undefined,
+          contact_email: meta.contact_email || undefined,
+          company_context: companyContext || undefined,
+        }),
+        { position: meta.position, company: meta.company },
+      );
       stopGenerationTicker();
       markGenerationComplete();
       setGenerationElapsedSeconds(res.processing_seconds);

@@ -59,6 +59,9 @@ resume-friend/
 ├── .env                          ← your secrets (gitignored — copy from .env.example)
 ├── .env.example                  ← template for all config values
 ├── .gitignore
+├── .dockerignore                 ← keeps secrets and local artifacts out of images
+├── Dockerfile                    ← production frontend + backend image
+├── compose.yaml                  ← one-command local container startup
 ├── PLAN.md                       ← implementation plan and architecture decisions
 │
 ├── backend/
@@ -118,7 +121,8 @@ resume-friend/
 | Requirement              | Check                                                         |
 | ------------------------ | ------------------------------------------------------------- |
 | Python 3.12+             | `python --version`                                            |
-| Node.js 18+              | `node -v`                                                     |
+| Node.js 20.19+           | `node -v` (native development only)                           |
+| Docker Desktop (optional) | `docker version` (replaces local Python/Node setup)           |
 | Microsoft Word (for PDF) | Needed by docx2pdf on Windows — .docx always saves regardless |
 | Ollama (optional)        | `ollama list` — only needed for local AI                      |
 
@@ -211,7 +215,47 @@ npm install
 
 ---
 
-## Running the App
+## Docker Quick Start
+
+Docker runs the compiled frontend and FastAPI backend in one image on port
+`8000`. Complete setup steps 1 and 2 above first so `.env` and
+`models_personal/` exist, then run:
+
+```powershell
+docker compose up --build -d
+```
+
+Open [http://localhost:8000](http://localhost:8000). The image is tagged
+`resume-friend:local`, and the API docs remain available at
+[http://localhost:8000/docs](http://localhost:8000/docs).
+
+Useful commands:
+
+```powershell
+# Follow application logs
+docker compose logs -f resume-friend
+
+# Rebuild the image after code or prompt-template changes
+docker compose build
+
+# Stop the app without deleting local outputs
+docker compose down
+```
+
+Compose mounts `models_personal/` and `ref/` read-only, and mounts `outputs/`
+and `tmp/` read-write. Secrets and personal files are excluded from the image.
+If Ollama runs on the host, Compose uses
+`http://host.docker.internal:11434`; override `DOCKER_OLLAMA_BASE_URL` in
+`.env` only when Ollama is elsewhere.
+
+> **Container limitations:** The Linux image cannot use Microsoft Word, so
+> `docx2pdf` may leave PDF output unavailable while preserving DOCX files and
+> QA evidence. The **Open Folder** button also cannot open the host file
+> explorer from inside the container; open the local `outputs/` directory
+> directly. Use the native Windows workflow below when Word-based PDF
+> conversion and Explorer integration are required.
+
+## Running the App Natively
 
 Open two terminals from the project root:
 
@@ -234,6 +278,23 @@ npm run dev
 Open [http://localhost:5173](http://localhost:5173).
 
 The FastAPI interactive docs are also available at [http://localhost:8000/docs](http://localhost:8000/docs).
+
+---
+
+## Desktop Completion Notifications
+
+The first time you select **Generate**, the browser asks for notification
+permission. Choose **Allow** to receive an operating-system desktop
+notification when the resume and cover letter finish successfully, including
+while Resume Friend is in a background tab. Failed generations do not send a
+success notification, and denied or unsupported notifications never block the
+generation itself.
+
+Keep the Resume Friend tab open while generation is running. If the permission
+prompt was previously denied, re-enable notifications for `localhost` in the
+browser's site settings. The operating system controls final placement (usually
+the lower-right corner on Windows) and may suppress the alert while Do Not
+Disturb or Focus mode is active.
 
 ---
 

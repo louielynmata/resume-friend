@@ -1,0 +1,24 @@
+services:
+  resume-friend:
+    image: resume-friend:local
+    build:
+      context: .
+    init: true
+    env_file:
+      - .env
+    environment:
+      APP_MODEL_FILES_DIR: /app/prompts
+      MODEL_FILES_DIR: /app/models_personal
+      OUTPUT_DIR: /app/outputs
+      QA_TEMP_DIR: /app/tmp/pdfs
+      REFERENCE_DIR: /app/ref
+      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./models_personal:/app/models_personal:ro
+      - ./outputs:/app/outputs
+      - ./ref:/app/ref:ro
+      - ./tmp:/app/tmp

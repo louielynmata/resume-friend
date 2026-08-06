@@ -1,13 +1,17 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import extract_job_meta, generate, scrape, model_files, notion, open_folder
+from .routers import extract_job_meta, generate, model_files, notion, open_folder, scrape
 
 logger = logging.getLogger("uvicorn.error")
 
+_ROOT = Path(__file__).parent.parent
+_DEFAULT_FRONTEND_DIST = _ROOT / "frontend" / "dist"
 _MODEL_FILES = [
     "design_resume.md",
     "dev_resume.md",
@@ -17,34 +21,7 @@ _MODEL_FILES = [
 ]
 _APP_MODEL_FILES = ["system_prompt.md", "qa_prompt.md", "visual_qa_prompt.md"]
 
-app = FastAPI(
-    title="Resume Friend API",
-    description="Local tool for generating tailored resumes and cover letters with AI.",
-    version="1.0.0",
-)
 
-# CORS — allows the Vite dev server (and future auth frontend) to call the API
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        f"http://localhost:{settings.frontend_port}",
-        "http://localhost:5173",
-        "http://localhost:3000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(generate.router)
-app.include_router(scrape.router)
-app.include_router(extract_job_meta.router)
-app.include_router(model_files.router)
-app.include_router(notion.router)
-app.include_router(open_folder.router)
-
-
-@app.on_event("startup")
 async def _check_model_files() -> None:
     app_base = settings.app_model_files_path
     for filename in _APP_MODEL_FILES:
@@ -65,15 +42,57 @@ async def _check_model_files() -> None:
         )
         return
     for filename in _MODEL_FILES:
-        p = base / filename
-        if not p.exists():
+        path = base / filename
+        if not path.exists():
             logger.warning("models_personal/%s is missing", filename)
-        elif p.read_text(encoding="utf-8").strip().startswith("[PLACEHOLDER"):
+        elif path.read_text(encoding="utf-8").strip().startswith("[PLACEHOLDER"):
             logger.warning("models_personal/%s still contains placeholder content", filename)
         else:
             logger.info("models_personal/%s OK", filename)
 
 
-@app.get("/api/health")
-def health():
+def health() -> dict[str, str]:
     return {"status": "ok", "owner": settings.owner_name}
+
+
+def create_app(*, frontend_dist: Path | None = None) -> FastAPI:
+    application = FastAPI(
+        title="Resume Friend API",
+        description="Local tool for generating tailored resumes and cover letters with AI.",
+        version="1.0.0",
+    )
+
+    # CORS allows the separate Vite development server to call the API.
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            f"http://localhost:{settings.frontend_port}",
+            "http://localhost:5173",
+            "http://localhost:3000",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    application.include_router(generate.router)
+    application.include_router(scrape.router)
+    application.include_router(extract_job_meta.router)
+    application.include_router(model_files.router)
+    application.include_router(notion.router)
+    application.include_router(open_folder.router)
+    application.router.add_event_handler("startup", _check_model_files)
+    application.add_api_route("/api/health", health, methods=["GET"])
+
+    resolved_frontend_dist = frontend_dist or _DEFAULT_FRONTEND_DIST
+    if (resolved_frontend_dist / "index.html").is_file():
+        application.mount(
+            "/",
+            StaticFiles(directory=str(resolved_frontend_dist), html=True),
+            name="frontend",
+        )
+
+    return application
+
+
+app = create_app()

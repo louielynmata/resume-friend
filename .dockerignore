@@ -1,0 +1,17 @@
+.git
+.gitignore
+.env
+.venv
+venv
+__pycache__
+*.py[cod]
+*.log
+AGENTS.md
+claude
+frontend/.test-dist
+frontend/dist
+frontend/node_modules
+models_personal
+outputs
+ref
+tmp
