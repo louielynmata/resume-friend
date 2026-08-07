@@ -6,20 +6,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import extract_job_meta, generate, model_files, notion, open_folder, scrape
+from .routers import (
+    editor,
+    extract_job_meta,
+    generate,
+    locations,
+    model_files,
+    notion,
+    open_folder,
+    scrape,
+)
+from .services.editor_service import PERSONAL_FILE_REGISTRY, PROMPT_FILE_REGISTRY
 
 logger = logging.getLogger("uvicorn.error")
 
 _ROOT = Path(__file__).parent.parent
 _DEFAULT_FRONTEND_DIST = _ROOT / "frontend" / "dist"
-_MODEL_FILES = [
-    "design_resume.md",
-    "dev_resume.md",
-    "instructions_prompt.md",
-    "writing_examples.md",
-    "school_transcript.md",
-]
-_APP_MODEL_FILES = ["system_prompt.md", "qa_prompt.md", "visual_qa_prompt.md"]
+_MODEL_FILES = [definition.filename for definition in PERSONAL_FILE_REGISTRY.values()]
+_APP_MODEL_FILES = [definition.filename for definition in PROMPT_FILE_REGISTRY.values()]
 
 
 async def _check_model_files() -> None:
@@ -79,6 +83,8 @@ def create_app(*, frontend_dist: Path | None = None) -> FastAPI:
     application.include_router(scrape.router)
     application.include_router(extract_job_meta.router)
     application.include_router(model_files.router)
+    application.include_router(editor.router)
+    application.include_router(locations.router)
     application.include_router(notion.router)
     application.include_router(open_folder.router)
     application.router.add_event_handler("startup", _check_model_files)

@@ -2,8 +2,9 @@
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023", "DOM"],
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
     "types": ["node"],
     "strict": true,
     "skipLibCheck": true,
@@ -11,7 +12,8 @@
     "outDir": ".test-dist"
   },
   "include": [
-    "src/utils/desktop-notification.ts",
-    "tests/desktop-notification.test.ts"
+    "src/components/MarkdownFileTabs.tsx",
+    "src/utils/*.ts",
+    "tests/*.test.ts"
   ]
 }

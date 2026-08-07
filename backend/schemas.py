@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Literal, Optional
 from datetime import date
 
 
@@ -80,3 +80,51 @@ class ModelFilesResponse(BaseModel):
     instructions_prompt: bool
     writing_examples: bool
     school_transcript: bool
+
+
+EditorGroup = Literal["personal", "prompts"]
+EditorSource = Literal["personal", "example", "prompt"]
+
+
+class EditorFileMetadata(BaseModel):
+    group: EditorGroup
+    file_id: str
+    filename: str
+    display_name: str
+    exists: bool
+    source: EditorSource
+    writable: bool
+
+
+class EditorFilesResponse(BaseModel):
+    groups: dict[EditorGroup, list[EditorFileMetadata]]
+
+
+class EditorFileResponse(EditorFileMetadata):
+    content: str
+    revision: str
+
+
+class EditorSaveRequest(BaseModel):
+    content: str
+    revision: str = Field(min_length=1, max_length=128)
+
+
+class EditorSaveResponse(EditorFileResponse):
+    personal_file_status: ModelFilesResponse
+
+
+class LocationListResponse(BaseModel):
+    locations: list[str]
+
+
+class LocationNormalizeRequest(BaseModel):
+    location: str = Field(max_length=500)
+    persist: bool = False
+
+
+class LocationNormalizeResponse(BaseModel):
+    raw: str
+    normalized: Optional[str] = None
+    added: bool
+    locations: list[str]

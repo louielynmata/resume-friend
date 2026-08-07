@@ -11,6 +11,11 @@ from fastapi import APIRouter, HTTPException
 from ..config import settings
 from ..schemas import GenerateRequest, GenerateResponse, GenerationStatusResponse
 from ..services.ai_service import generate_content
+from ..services.location_service import (
+    CATALOG_FILENAME,
+    LocationCatalog,
+    LocationCatalogError,
+)
 from ..services.notion_service import log_application
 from ..services.qa_pipeline import (
     QAPipelineResult,
@@ -273,6 +278,23 @@ async def generate(req: GenerateRequest):
     _prune_generation_progress()
     _record_generation_progress("validate_request")
     try:
+        _validate_generation_request(req)
+        try:
+            req.location = LocationCatalog(
+                settings.model_files_path / CATALOG_FILENAME
+            ).normalize(req.location, persist=True).normalized
+        except LocationCatalogError as exc:
+            raise _http_error(
+                500,
+                stage="validate_request",
+                code="LOCATION_CATALOG_INVALID",
+                message="The local location catalog could not be updated.",
+                detail=str(exc),
+                hint=(
+                    "Repair normalized_locations.json or move it aside so Resume Friend "
+                    "can recreate the Remote seed."
+                ),
+            ) from exc
         return await _run_generation(req, generation_started_at)
     except Exception as exc:
         progress = _generation_progress.get(generation_id)
@@ -661,7 +683,6 @@ async def _run_generation(
     req: GenerateRequest,
     generation_started_at: float,
 ) -> GenerateResponse:
-    _validate_generation_request(req)
     model_files = _load_generation_model_files(req)
     salary_annual, salary_hourly = _resolve_compensation(req)
     user_prompt = _build_user_prompt(req)

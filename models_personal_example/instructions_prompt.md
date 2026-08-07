@@ -187,7 +187,7 @@ General rules for work entries:
 - Company names are bold.
 - Dates are on the same line as the role or company — compact and inline.
 - One blank line between separate job entries.
-- Notable Clients or Notable Clients & Works is a bold sub-label (not a section header) followed by bullet items. Only include if it materially helps the application.
+- Notable Clients or Notable Clients & Works is a required bold sub-label (not a section header) whenever it exists in the source, followed by every source client bullet. Preserve the company descriptor and separate role/date lines around it; only source-supported bullet lines may be added to that entry.
 - No blank line between the section header (e.g., RELATED WORK EXPERIENCES) and the first job entry beneath it.
 
 ---

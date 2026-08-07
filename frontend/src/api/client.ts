@@ -1,10 +1,16 @@
 import type {
   ApiErrorPayload,
+  EditorFileResult,
+  EditorFilesResult,
+  EditorGroup,
+  EditorSaveResult,
   ExtractJobMetaResult,
   GeneratePayload,
   GenerateResult,
   GenerationStatusResult,
   ModelFilesStatus,
+  LocationListResult,
+  LocationNormalizeResult,
 } from "../types";
 
 export class ApiError extends Error {
@@ -68,6 +74,35 @@ export const api = {
     }),
 
   modelFiles: () => request<ModelFilesStatus>("/api/model-files"),
+
+  editorFiles: () => request<EditorFilesResult>("/api/editor/files"),
+
+  editorFile: (group: EditorGroup, fileId: string) =>
+    request<EditorFileResult>(
+      `/api/editor/files/${encodeURIComponent(group)}/${encodeURIComponent(fileId)}`,
+    ),
+
+  saveEditorFile: (
+    group: EditorGroup,
+    fileId: string,
+    content: string,
+    revision: string,
+  ) =>
+    request<EditorSaveResult>(
+      `/api/editor/files/${encodeURIComponent(group)}/${encodeURIComponent(fileId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ content, revision }),
+      },
+    ),
+
+  locations: () => request<LocationListResult>("/api/locations"),
+
+  normalizeLocation: (location: string, persist = false) =>
+    request<LocationNormalizeResult>("/api/locations/normalize", {
+      method: "POST",
+      body: JSON.stringify({ location, persist }),
+    }),
 
   notionStatus: () => request<{ configured: boolean }>("/api/notion/status"),
 };

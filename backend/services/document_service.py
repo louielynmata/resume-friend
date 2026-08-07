@@ -263,6 +263,10 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
     if m:
         return "company", m.group(1).strip()
 
+    m = re.match(r"^SUBHEADING\s*:\s*(.+?)$", line, re.IGNORECASE)
+    if m:
+        return "subheading", m.group(1).strip()
+
     m = re.match(r"^\[?(?:CONTACT|CONTACT INFO)\s*:\s*(.+?)\]?$", clean, re.IGNORECASE)
     if m:
         return "contact", m.group(1).strip()
@@ -572,6 +576,9 @@ def _build_resume_docx(content: str, path: Path) -> Path:
         elif kind == "company":
             _add_entry_header(doc, value, keep_with_next=True)
 
+        elif kind == "subheading":
+            _add_entry_subheading(doc, value)
+
         elif kind == "category":
             categories: list[tuple[str, str]] = []
             while i < len(lines):
@@ -710,6 +717,15 @@ def _add_entry_header(
         run = p.add_run("  |  " + "  |  ".join(parts[1:]))
         _set_run_font(run, size=_RESUME_BODY_SIZE)
         run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+
+
+def _add_entry_subheading(doc: Document, text: str) -> None:
+    p = doc.add_paragraph()
+    _set_para_spacing(p, before=4, after=1)
+    _set_pagination(p, keep_with_next=True, keep_together=True)
+    run = p.add_run(_strip_bold(text))
+    run.bold = True
+    _set_run_font(run, size=_RESUME_BODY_SIZE)
 
 
 def _add_project_header(doc: Document, text: str) -> None:

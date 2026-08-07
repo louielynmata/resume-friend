@@ -22,6 +22,7 @@ RUN python -m pip install --no-cache-dir -r backend/requirements.txt
 
 COPY backend/ ./backend/
 COPY prompts/ ./prompts/
+COPY models_personal_example/ ./models_personal_example/
 COPY --from=frontend-build /build/frontend/dist ./frontend/dist/
 
 RUN mkdir -p /app/models_personal /app/outputs /app/ref /app/tmp/pdfs

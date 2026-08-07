@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/desktop-notification.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js"
   },
   "dependencies": {
     "react": "^19.2.6",

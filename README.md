@@ -13,6 +13,7 @@ Inspired by and built in discussion with [Fernando C. B. Horta](https://github.c
 2. Choose AI provider: Claude · OpenAI · Ollama (local)
 3. Choose job type: Design or Development
 4. Enter job details (company, position, salary, etc.)
+   - Location is reduced to `Remote`, one canonical city value, or blank
      ↓
    AI reads your resume + instructions + writing style
      ↓
@@ -34,6 +35,20 @@ Inspired by and built in discussion with [Fernando C. B. Horta](https://github.c
 > `models_personal/` directory. During generation, their contents are sent to the
 > AI provider you select. Choose Ollama when you need the generation request to
 > remain on your machine.
+
+## Application Pages
+
+The shared header exposes exactly three hash-routed pages. Direct links, refresh,
+and browser back/forward work without server-side route configuration:
+
+- `#/generate` — the existing four-step resume and cover-letter wizard.
+- `#/edit/personal` — the five private applicant Markdown files.
+- `#/edit/prompts` — the three public generation and QA prompts.
+
+The Generate form remains in memory while you visit an editor page and continues
+to be saved in browser storage. If an editor contains unsaved changes, Resume
+Friend asks before switching files, changing pages, refreshing, or closing the
+tab.
 
 ---
 
@@ -72,6 +87,8 @@ resume-friend/
 │   │   ├── generate.py           ← POST /api/generate  (main endpoint)
 │   │   ├── scrape.py             ← POST /api/scrape-job
 │   │   ├── model_files.py        ← GET  /api/model-files
+│   │   ├── editor.py             ← allowlisted Markdown read/save API
+│   │   ├── locations.py          ← location catalog and normalization API
 │   │   └── notion.py             ← GET  /api/notion/status
 │   ├── services/
 │   │   ├── ai_service.py         ← unified Claude / OpenAI / Ollama interface
@@ -85,10 +102,13 @@ resume-friend/
 │
 ├── frontend/                     ← Vite + React app (see frontend/README.md)
 │   └── src/
-│       ├── App.tsx               ← 4-step wizard orchestrator
+│       ├── App.tsx               ← shared three-page shell + wizard state
 │       ├── types.ts              ← shared TypeScript types
 │       ├── api/client.ts         ← typed fetch wrapper for backend
 │       └── components/
+│           ├── Navigation.tsx    ← shared page links
+│           ├── Footer.tsx        ← shared page footer
+│           ├── MarkdownFileEditor.tsx ← safe shared editor UI
 │           ├── StepJobInput.tsx  ← Step 1: paste JD or scrape URL
 │           ├── StepAIConfig.tsx  ← Step 2: AI provider + job type
 │           ├── StepJobMeta.tsx   ← Step 3: company, position, salary…
@@ -118,13 +138,13 @@ resume-friend/
 
 ## Prerequisites
 
-| Requirement              | Check                                                         |
-| ------------------------ | ------------------------------------------------------------- |
-| Python 3.12+             | `python --version`                                            |
-| Node.js 20.19+           | `node -v` (native development only)                           |
+| Requirement               | Check                                                         |
+| ------------------------- | ------------------------------------------------------------- |
+| Python 3.12+              | `python --version`                                            |
+| Node.js 20.19+            | `node -v` (native development only)                           |
 | Docker Desktop (optional) | `docker version` (replaces local Python/Node setup)           |
-| Microsoft Word (for PDF) | Needed by docx2pdf on Windows — .docx always saves regardless |
-| Ollama (optional)        | `ollama list` — only needed for local AI                      |
+| Microsoft Word (for PDF)  | Needed by docx2pdf on Windows — .docx always saves regardless |
+| Ollama (optional)         | `ollama list` — only needed for local AI                      |
 
 ---
 
@@ -179,6 +199,56 @@ part of the public application. Put applicant names, contact details, education
 facts, portfolio links, and personal writing preferences only in
 `models_personal/` or `.env`.
 
+### Editing Markdown files in the app
+
+Open **Edit Personal Files** to edit the five applicant source files or **Edit
+Prompts** to edit `system_prompt.md`, `qa_prompt.md`, and
+`visual_qa_prompt.md`. The browser sends only server-defined file IDs; it never
+sends an arbitrary filesystem path.
+
+Use the file tabs above the editor to move between Markdown documents. On
+narrow screens, the tab rail scrolls horizontally so every file remains
+available without collapsing into a dropdown.
+
+When a personal file is missing, its matching file under
+`models_personal_example/` appears as an editable example fallback. **Save
+changes** creates the corresponding file under `models_personal/`; the example
+is never modified. **Reset changes** returns only to the latest loaded or saved
+content and does not delete or factory-reset a file.
+
+Each load returns a revision hash. If another editor or process changes the file
+before Save, Resume Friend returns a conflict instead of overwriting it. Reload
+the page, review the newer content, and apply the intended edit again. Saves are
+UTF-8, size-bounded, allowlisted, and atomically replaced. Prompt changes can
+materially alter writing, truthfulness review, artifact QA, and repair behavior,
+so review them carefully before saving.
+
+### Canonical job locations
+
+The Details step suggests locations from the local catalog and asks the backend
+to normalize extracted or typed values. The backend is authoritative; direct
+API clients pass through the same boundary before generation and Notion logging.
+
+| Entered value                    | Stored value |
+| -------------------------------- | ------------ |
+| `Calgary, AB (Hybrid)`           | `Calgary`    |
+| `calgary` after Calgary is known | `Calgary`    |
+| `Remote - Canada`                | `Remote`     |
+| `Toronto / Remote`               | `Remote`     |
+| `New York, NY`                   | `New York`   |
+
+Multi-word cities remain intact. Explicit Remote text takes precedence; invalid,
+numeric-only, or arrangement-only values become blank and are not learned. The
+catalog begins with `Remote` and is stored at
+`models_personal/normalized_locations.json`, alongside the other gitignored
+personal data. Extraction previews do not add entries; a confirmed generation
+can add a valid new city.
+
+If the catalog is missing, Resume Friend recreates it with the `Remote` seed. If
+the JSON is malformed, the app reports an actionable error and does not replace
+the file. Repair the `{ "locations": [...] }` structure or move the malformed
+file aside, then reload the locations or generate again.
+
 ### QA behavior
 
 QA is enabled by default. It always performs one independent review, then makes
@@ -188,6 +258,13 @@ review attempts. Design resumes use the three-page reference limit;
 development resumes retain the two-page default. Visual QA also receives the
 PDFs under `ref/` and treats material reference-format drift as blocking. Each
 output folder receives `qa_report.json`.
+
+For design resumes, source work entries that include a **Notable Clients**
+subsection are fixed reference entries. Their company descriptor, separate
+role/date lines, source achievement bullets, and complete client list are
+restored deterministically. Tailoring may only add source-supported bullet
+lines inside those entries.
+
 Notion logging occurs only after blocking QA issues are resolved.
 
 Mechanical invariants such as resume bullet markers, the configured applicant
@@ -242,8 +319,11 @@ docker compose build
 docker compose down
 ```
 
-Compose mounts `models_personal/` and `ref/` read-only, and mounts `outputs/`
-and `tmp/` read-write. Secrets and personal files are excluded from the image.
+Compose mounts `models_personal/`, `prompts/`, `outputs/`, and `tmp/` read-write
+so browser edits and generated artifacts persist on the host. It keeps `ref/`
+read-only. Secrets and personal files are excluded from the image. Prompt edits
+made in the container therefore update the checked-out host files; review those
+changes before committing.
 If Ollama runs on the host, Compose uses
 `http://host.docker.internal:11434`; override `DOCKER_OLLAMA_BASE_URL` in
 `.env` only when Ollama is elsewhere.

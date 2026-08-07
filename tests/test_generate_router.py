@@ -1,7 +1,10 @@
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from backend.config import settings
 from backend.routers.generate import (
     _create_run_output_dir,
     _current_generation_id,
@@ -9,7 +12,9 @@ from backend.routers.generate import (
     _http_error,
     _record_generation_progress,
     get_generation_status,
+    generate,
 )
+from backend.schemas import GenerateRequest
 
 
 class GenerateRouterTests(unittest.TestCase):
@@ -63,6 +68,31 @@ class GenerateRouterTests(unittest.TestCase):
             resolved = _create_run_output_dir(base)
 
             self.assertEqual(resolved.name, f"{base.name}_2")
+
+    def test_generation_normalizes_location_before_downstream_side_effects(self):
+        captured_location = None
+
+        async def capture_request(req, _started_at):
+            nonlocal captured_location
+            captured_location = req.location
+            return object()
+
+        request = GenerateRequest(
+            job_description="A real job description",
+            ai_provider="ollama",
+            job_type="development",
+            position="Developer",
+            company="Example Co",
+            location="Calgary, AB (Hybrid)",
+        )
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            settings, "model_files_dir", tmp
+        ), mock.patch(
+            "backend.routers.generate._run_generation", side_effect=capture_request
+        ):
+            asyncio.run(generate(request))
+
+        self.assertEqual(captured_location, "Calgary")
 
 
 if __name__ == "__main__":

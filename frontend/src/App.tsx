@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "./api/client";
+import { Footer } from "./components/Footer";
+import { Navigation } from "./components/Navigation";
 import { StepJobInput } from "./components/StepJobInput";
 import { StepAIConfig } from "./components/StepAIConfig";
 import { StepJobMeta } from "./components/StepJobMeta";
 import { StepResult } from "./components/StepResult";
+import { PersonalFilesPage } from "./pages/PersonalFilesPage";
+import { PromptsPage } from "./pages/PromptsPage";
 import {
   notifyWhenGenerationCompletes,
   requestDesktopNotificationPermission,
 } from "./utils/desktop-notification";
+import { hashForPage, pageFromHash, type AppPage } from "./utils/app-routing";
 import type {
   AIProvider,
   GenerateResult,
@@ -172,8 +177,16 @@ function buildGenerationFeed(
   }));
 }
 
+function initialPage(): AppPage {
+  return typeof window === "undefined"
+    ? "generate"
+    : pageFromHash(window.location.hash);
+}
+
 export default function App() {
   const [savedForm] = useState(loadPersistedForm);
+  const [page, setPage] = useState<AppPage>(initialPage);
+  const [editorDirty, setEditorDirty] = useState(false);
   const [step, setStep] = useState(0);
   const [jd, setJd] = useState(savedForm.jd);
   const [companyContext, setCompanyContext] = useState(
@@ -213,6 +226,8 @@ export default function App() {
   const [modelFilesBannerDismissed, setModelFilesBannerDismissed] =
     useState(false);
   const [formResetKey, setFormResetKey] = useState(0);
+  const currentPageRef = useRef(page);
+  const editorDirtyRef = useRef(editorDirty);
 
   function stopGenerationTicker(captureElapsed = true) {
     if (generationIntervalRef.current !== null) {
@@ -317,6 +332,53 @@ export default function App() {
   useEffect(() => () => stopGenerationTicker(false), []);
 
   useEffect(() => {
+    currentPageRef.current = page;
+  }, [page]);
+
+  useEffect(() => {
+    editorDirtyRef.current = editorDirty;
+  }, [editorDirty]);
+
+  useEffect(() => {
+    const canonicalHash = hashForPage(pageFromHash(window.location.hash));
+    if (window.location.hash !== canonicalHash) {
+      window.history.replaceState(null, "", canonicalHash);
+    }
+
+    const handleHashChange = () => {
+      const nextPage = pageFromHash(window.location.hash);
+      const currentPage = currentPageRef.current;
+      if (nextPage === currentPage) return;
+      if (
+        editorDirtyRef.current &&
+        !window.confirm("Discard unsaved Markdown changes and leave this page?")
+      ) {
+        window.history.replaceState(null, "", hashForPage(currentPage));
+        return;
+      }
+      editorDirtyRef.current = false;
+      setEditorDirty(false);
+      setPage(nextPage);
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  const confirmNavigation = useCallback((nextPage: AppPage) => {
+    if (nextPage === currentPageRef.current || !editorDirtyRef.current)
+      return true;
+    const confirmed = window.confirm(
+      "Discard unsaved Markdown changes and leave this page?",
+    );
+    if (confirmed) {
+      editorDirtyRef.current = false;
+      setEditorDirty(false);
+    }
+    return confirmed;
+  }, []);
+
+  useEffect(() => {
     const saveTimer = window.setTimeout(() => {
       try {
         const form: PersistedForm = {
@@ -334,13 +396,17 @@ export default function App() {
     return () => window.clearTimeout(saveTimer);
   }, [jd, companyContext, aiProvider, jobType, meta]);
 
-  useEffect(() => {
+  const refreshModelFiles = useCallback(() => {
     api
       .modelFiles()
       .then(setModelFilesStatus)
       .catch(() => setModelFilesStatus(null))
       .finally(() => setModelFilesChecked(true));
   }, []);
+
+  useEffect(() => {
+    refreshModelFiles();
+  }, [refreshModelFiles]);
 
   function handleMetaChange(next: JobMeta) {
     setMetaTouched((currentTouched) => {
@@ -406,7 +472,7 @@ export default function App() {
     await prefillJobMeta();
   }
 
-  async function handleGenerate() {
+  async function handleGenerate(canonicalLocation?: string) {
     setGenerating(true);
     setError("");
     setErrorCode("");
@@ -427,7 +493,7 @@ export default function App() {
           job_type: jobType,
           position: meta.position,
           company: meta.company,
-          location: meta.location || undefined,
+          location: (canonicalLocation ?? meta.location) || undefined,
           salary_annual: meta.salary_annual
             ? Number.parseFloat(meta.salary_annual)
             : undefined,
@@ -518,34 +584,40 @@ export default function App() {
     (modelFilesStatus === null || (missingFiles && missingFiles.length > 0));
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="app-header-row">
           <div>
-            <h1 className="text-lg font-bold text-slate-900">Resume Friend</h1>
-            <p className="text-xs text-slate-400">
-              AI-powered resume & cover letter generator
+            <h1 className="text-lg font-bold tracking-tight text-slate-900">
+              Resume Friend
+            </h1>
+            <p className="text-xs text-slate-500">
+              Personalized AI-powered resume & cover letter generator
             </p>
           </div>
           <nav aria-label="Form actions" className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleHeaderReset}
-              disabled={generating || extractingMeta}
-              className="px-3 py-1.5 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-300 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Reset
-            </button>
-            <span className="text-xs text-slate-400 bg-slate-100 px-3 py-1.5 rounded">
+            {page === "generate" && (
+              <button
+                type="button"
+                onClick={handleHeaderReset}
+                disabled={generating || extractingMeta}
+                className="rounded border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Reset form
+              </button>
+            )}
+            <span className="rounded bg-slate-100 px-3 py-3 text-xs text-slate-500">
               Local
             </span>
           </nav>
         </div>
+        <div className="app-nav-row">
+          <Navigation activePage={page} onNavigate={confirmNavigation} />
+        </div>
       </header>
 
       {/* Model files setup banner */}
-      {showSetupBanner && (
+      {page === "generate" && showSetupBanner && (
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-3">
           <div className="max-w-2xl mx-auto flex items-start justify-between gap-4">
             <div>
@@ -581,105 +653,104 @@ export default function App() {
         </div>
       )}
 
-      {/* Step indicator */}
-      <div className="bg-white border-b border-slate-200 px-6 py-3">
-        <div className="max-w-2xl mx-auto flex gap-1">
-          {STEPS.map((label, i) => {
-            const isActive = i === step;
-            const isDone = i < step;
-            let textColor = "text-slate-400";
-            if (isActive) textColor = "text-indigo-600";
-            else if (isDone) textColor = "text-green-600";
-            let circleColor = "bg-slate-200 text-slate-500";
-            if (isActive) circleColor = "bg-indigo-600 text-white";
-            else if (isDone) circleColor = "bg-green-500 text-white";
-            return (
-              <div key={label} className="flex items-center gap-1 flex-1">
-                <div
-                  className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${textColor}`}
-                >
-                  <span
-                    className={`w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0 ${circleColor}`}
-                  >
-                    {isDone ? "✓" : i + 1}
-                  </span>
-                  <span className="hidden sm:inline">{label}</span>
-                </div>
-                {i < STEPS.length - 1 && (
+      {page === "generate" && (
+        <div className="bg-white border-b border-slate-200 px-6 py-3">
+          <div className="max-w-2xl mx-auto flex gap-1">
+            {STEPS.map((label, i) => {
+              const isActive = i === step;
+              const isDone = i < step;
+              let textColor = "text-slate-400";
+              if (isActive) textColor = "text-indigo-600";
+              else if (isDone) textColor = "text-green-600";
+              let circleColor = "bg-slate-200 text-slate-500";
+              if (isActive) circleColor = "bg-indigo-600 text-white";
+              else if (isDone) circleColor = "bg-green-500 text-white";
+              return (
+                <div key={label} className="flex items-center gap-1 flex-1">
                   <div
-                    className={`flex-1 h-px mx-1 ${isDone ? "bg-green-300" : "bg-slate-200"}`}
-                  />
-                )}
+                    className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${textColor}`}
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0 ${circleColor}`}
+                    >
+                      {isDone ? "✓" : i + 1}
+                    </span>
+                    <span className="hidden sm:inline">{label}</span>
+                  </div>
+                  {i < STEPS.length - 1 && (
+                    <div
+                      className={`flex-1 h-px mx-1 ${isDone ? "bg-green-300" : "bg-slate-200"}`}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <main className="flex-1 px-4 py-8 sm:px-6">
+        {page === "generate" && (
+          <div className="max-w-2xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                <strong>Error:</strong> {error}
               </div>
-            );
-          })}
-        </div>
-      </div>
+            )}
 
-      {/* Main content */}
-      <main className="flex-1 px-6 py-8">
-        <div className="max-w-2xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-              <strong>Error:</strong> {error}
-            </div>
-          )}
-
-          {step === 0 && (
-            <StepJobInput
-              key={formResetKey}
-              value={jd}
-              onChange={setJd}
-              companyContext={companyContext}
-              onCompanyContextChange={setCompanyContext}
-              onNext={() => setStep(1)}
-            />
-          )}
-          {step === 1 && (
-            <StepAIConfig
-              aiProvider={aiProvider}
-              jobType={jobType}
-              onChangeProvider={setAiProvider}
-              onChangeJobType={setJobType}
-              onBack={() => setStep(0)}
-              onNext={handleOpenJobMetaStep}
-            />
-          )}
-          {step === 2 && (
-            <StepJobMeta
-              meta={meta}
-              onChange={handleMetaChange}
-              onBack={() => setStep(1)}
-              onGenerate={handleGenerate}
-              generating={generating}
-              extracting={extractingMeta}
-              generationFeed={generationFeed}
-              generationErrorCode={errorCode}
-              generationErrorStatus={errorStatus}
-              generationErrorHint={errorHint}
-              generationElapsedSeconds={generationElapsedSeconds}
-            />
-          )}
-          {step === 3 && result && (
-            <StepResult result={result} onReset={resetForm} />
-          )}
-        </div>
+            {step === 0 && (
+              <StepJobInput
+                key={formResetKey}
+                value={jd}
+                onChange={setJd}
+                companyContext={companyContext}
+                onCompanyContextChange={setCompanyContext}
+                onNext={() => setStep(1)}
+              />
+            )}
+            {step === 1 && (
+              <StepAIConfig
+                aiProvider={aiProvider}
+                jobType={jobType}
+                onChangeProvider={setAiProvider}
+                onChangeJobType={setJobType}
+                onBack={() => setStep(0)}
+                onNext={handleOpenJobMetaStep}
+              />
+            )}
+            {step === 2 && (
+              <StepJobMeta
+                meta={meta}
+                onChange={handleMetaChange}
+                onBack={() => setStep(1)}
+                onGenerate={handleGenerate}
+                generating={generating}
+                extracting={extractingMeta}
+                generationFeed={generationFeed}
+                generationErrorCode={errorCode}
+                generationErrorStatus={errorStatus}
+                generationErrorHint={errorHint}
+                generationElapsedSeconds={generationElapsedSeconds}
+              />
+            )}
+            {step === 3 && result && (
+              <StepResult result={result} onReset={resetForm} />
+            )}
+          </div>
+        )}
+        {page === "personal" && (
+          <PersonalFilesPage
+            onDirtyChange={setEditorDirty}
+            onSaved={() => {
+              setModelFilesBannerDismissed(false);
+              refreshModelFiles();
+            }}
+          />
+        )}
+        {page === "prompts" && <PromptsPage onDirtyChange={setEditorDirty} />}
       </main>
 
-      <footer className="text-center text-xs text-slate-400 py-4">
-        Resume Friend - use Ollama for fully local generation
-        <br />
-        Resume Friend by{" "}
-        <a
-          href="https://louielyn.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className=" hover:text-slate-800 underline"
-        >
-          Louielyn Mata
-        </a>{" "}
-        © {new Date().getFullYear()}
-      </footer>
+      <Footer />
     </div>
   );
 }

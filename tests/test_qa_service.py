@@ -421,6 +421,139 @@ Example Studio
         self.assertEqual(fixed_again.model_dump(), fixed.model_dump())
         self.assertEqual(second_changes, [])
 
+    def test_validator_rejects_modified_design_reference_entry_structure(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director / Senior Art Director
+**Example Creative Agency**
+360 Entertainment & Advertising Agency
+**Creative Director:** April 2021 - Oct 2024, Full-time | Oct 2024 - 2026, Present Freelance
+**Senior Art Director:** April 2017 - April 2018, Full-time | 2019 - 2020, Freelance
+
+- Directed integrated campaigns.
+
+#### Notable Clients
+
+- Example Beverage Group - regional portfolio
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "Example Studio | Calgary\n"
+            "PRODUCT DESIGNER - 2020 - Present\n"
+            "● Built **accessible interfaces** for customer workflows.",
+            "Example Creative Agency | Rewritten descriptor\n"
+            "CREATIVE DIRECTOR / SENIOR ART DIRECTOR - 2017 - 2026\n"
+            "Unapproved structural subtitle\n"
+            "● Added a source-supported campaign bullet.",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+
+        self.assertIn(
+            "RESUME_DESIGN_REFERENCE_ENTRY_MISMATCH",
+            {issue.code for issue in issues},
+        )
+
+    def test_safe_fixes_lock_design_reference_entry_and_notable_clients(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director / Senior Art Director
+**Example Creative Agency**
+360 Entertainment & Advertising Agency
+**Creative Director:** April 2021 - Oct 2024, Full-time | Oct 2024 - 2026, Present Freelance
+**Senior Art Director:** April 2017 - April 2018, Full-time | 2019 - 2020, Freelance
+
+- Directed integrated campaigns.
+- Mentored multidisciplinary design teams.
+
+#### Notable Clients
+
+- Example Beverage Group - regional portfolio
+- Example Retail Group - seasonal campaigns
+
+### Multimedia Designer
+**Example Production Studio**
+2020 - Present
+
+- Produced digital campaign assets.
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "Example Studio | Calgary\n"
+            "PRODUCT DESIGNER - 2020 - Present\n"
+            "● Built **accessible interfaces** for customer workflows.",
+            "Example Creative Agency | Rewritten descriptor\n"
+            "CREATIVE DIRECTOR / SENIOR ART DIRECTOR - 2017 - 2026\n"
+            "Unapproved structural subtitle\n"
+            "● Added a source-supported campaign bullet.\n\n"
+            "NOTABLE CLIENTS\n"
+            "● Example Beverage Group only\n\n"
+            "Example Production Studio\n"
+            "MULTIMEDIA DESIGNER - 2020 - Present\n"
+            "● Produced digital campaign assets.",
+        )
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+        fixed_again, second_changes = apply_safe_deterministic_fixes(
+            fixed,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+        issue_codes = {
+            issue.code
+            for issue in validate_draft(
+                fixed,
+                owner_name="Alex Example",
+                source_resume=source_resume,
+                source_materials=source_resume,
+                job_type="design",
+            )
+        }
+
+        expected_block = """COMPANY: Example Creative Agency | 360 Entertainment & Advertising Agency
+CREATIVE DIRECTOR - April 2021 - Oct 2024, Full-time; Oct 2024 - 2026, Present Freelance
+SENIOR ART DIRECTOR - April 2017 - April 2018, Full-time; 2019 - 2020, Freelance
+● Directed integrated campaigns.
+● Mentored multidisciplinary design teams.
+● Added a source-supported campaign bullet.
+
+SUBHEADING: Notable Clients
+● Example Beverage Group - regional portfolio
+● Example Retail Group - seasonal campaigns"""
+        self.assertIn(expected_block, fixed.resume)
+        self.assertNotIn("Rewritten descriptor", fixed.resume)
+        self.assertNotIn("CREATIVE DIRECTOR / SENIOR ART DIRECTOR", fixed.resume)
+        self.assertNotIn("Unapproved structural subtitle", fixed.resume)
+        self.assertNotIn("Example Beverage Group only", fixed.resume)
+        self.assertIn("Example Production Studio", fixed.resume)
+        self.assertIn(
+            "Restored fixed design entry structure and Notable Clients",
+            " ".join(changes),
+        )
+        self.assertNotIn("RESUME_DESIGN_REFERENCE_ENTRY_MISMATCH", issue_codes)
+        self.assertEqual(fixed_again.model_dump(), fixed.model_dump())
+        self.assertEqual(second_changes, [])
+
     def test_safe_fixes_apply_development_header_and_section_contract(self):
         instructions = """RESUME HEADER - REQUIRED EXACT VALUES:
 CONTACT: alex@example.com | +1 555 010 0000 | Calgary, AB
