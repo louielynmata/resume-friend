@@ -1279,7 +1279,10 @@ def _source_design_reference_entries(
             )
             if bullet is not None:
                 target = notable_bullets if in_notable_clients else bullets
-                target.append(_reference_safe_text(bullet.group(1)))
+                value = _reference_safe_text(bullet.group(1))
+                if not in_notable_clients:
+                    value = _resume_voice_reference_bullet(value)
+                target.append(value)
                 continue
 
             plain_line = _plain_text(line)
@@ -1378,14 +1381,89 @@ def _line_matches_design_role(line: str, roles: tuple[str, ...]) -> bool:
     return _normalized_match_text(candidate) in normalized_roles
 
 
+_DESIGN_BULLET_MATCH_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "being",
+        "by",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "their",
+        "these",
+        "this",
+        "to",
+        "was",
+        "were",
+        "with",
+    }
+)
+
+
+def _design_bullet_content_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in _normalized_match_text(text).split()
+        if token not in _DESIGN_BULLET_MATCH_STOPWORDS
+    }
+
+
+def _design_bullet_numbers(text: str) -> set[str]:
+    return {
+        token.casefold().removesuffix("+")
+        for token in re.findall(
+            r"(?i)(?<!\w)\d+(?:[.,]\d+)?(?:[kmb])?%?\+?(?!\w)",
+            text,
+        )
+    }
+
+
+def _design_bullets_are_redundant(candidate: str, reference: str) -> bool:
+    if _normalized_match_text(candidate) == _normalized_match_text(reference):
+        return True
+
+    candidate_numbers = _design_bullet_numbers(candidate)
+    reference_numbers = _design_bullet_numbers(reference)
+    if candidate_numbers != reference_numbers:
+        return False
+
+    candidate_tokens = _design_bullet_content_tokens(candidate)
+    reference_tokens = _design_bullet_content_tokens(reference)
+    if not candidate_tokens or not reference_tokens:
+        return False
+
+    overlap = len(candidate_tokens & reference_tokens)
+    return (
+        overlap >= 6
+        and overlap / len(candidate_tokens) >= 0.6
+        and overlap / len(reference_tokens) >= 0.6
+    )
+
+
 def _design_entry_extra_bullets(
     lines: list[str],
     entry: _DesignReferenceEntry,
 ) -> list[str]:
-    source_bullets = {
-        _normalized_match_text(bullet)
-        for bullet in (*entry.bullets, *entry.notable_bullets)
-    }
+    source_bullets = (*entry.bullets, *entry.notable_bullets)
     extras: list[str] = []
     in_notable_clients = False
     notable_normalized = _normalized_match_text(entry.notable_label)
@@ -1406,12 +1484,20 @@ def _design_entry_extra_bullets(
         bullet = re.match(r"^\s*(?:[-+*]|\u25cf|\u2022)\s+(.+?)\s*$", line)
         if bullet is None:
             continue
-        value = _reference_safe_text(bullet.group(1))
-        normalized = _normalized_match_text(value)
-        if normalized and normalized not in source_bullets and all(
-            _normalized_match_text(existing) != normalized for existing in extras
+        value = _resume_voice_reference_bullet(bullet.group(1))
+        if not _normalized_match_text(value):
+            continue
+        if any(
+            _design_bullets_are_redundant(value, source_bullet)
+            for source_bullet in source_bullets
         ):
-            extras.append(value)
+            continue
+        if any(
+            _design_bullets_are_redundant(value, existing)
+            for existing in extras
+        ):
+            continue
+        extras.append(value)
     return extras
 
 
@@ -1756,6 +1842,38 @@ def _resume_section_name(line: str) -> str | None:
 
 def _reference_safe_text(text: str) -> str:
     return re.sub(r"\s*\u2014\s*", ", ", text).strip()
+
+
+def _resume_voice_reference_bullet(text: str) -> str:
+    """Canonicalize trusted source bullets without changing their facts."""
+    value = _reference_safe_text(text)
+    value = re.sub(
+        r"(?i)^I(?:\s+(?:am|have|had|was)|'(?:m|ve))\s+",
+        "",
+        value,
+    )
+    value = re.sub(r"(?i)^I\s+", "", value)
+    value = re.sub(r"(?i)\bunder\s+my\s+team\b", "on the team", value)
+    value = re.sub(r"(?i)\bmy\s+team\b", "the team", value)
+
+    replacements = (
+        (r"(?i)\bI'm\b", "the applicant is"),
+        (r"(?i)\bI've\b", "the applicant has"),
+        (r"(?i)\bI'll\b", "the applicant will"),
+        (r"(?i)\bmyself\b", "the applicant"),
+        (r"(?i)\bmine\b", "the applicant's"),
+        (r"(?i)\bmy\b", "the applicant's"),
+        (r"(?i)\bme\b", "the applicant"),
+        (r"(?i)\bI\b", "the applicant"),
+    )
+    for pattern, replacement in replacements:
+        value = re.sub(pattern, replacement, value)
+
+    first_letter = re.search(r"[A-Za-z]", value)
+    if first_letter is not None:
+        index = first_letter.start()
+        value = f"{value[:index]}{value[index].upper()}{value[index + 1:]}"
+    return value.strip()
 
 
 def _collapse_blank_lines(lines: list[str]) -> str:

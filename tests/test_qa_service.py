@@ -554,6 +554,155 @@ SUBHEADING: Notable Clients
         self.assertEqual(fixed_again.model_dump(), fixed.model_dump())
         self.assertEqual(second_changes, [])
 
+    def test_safe_fixes_normalize_first_person_in_locked_design_source_bullets(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director
+**Example Creative Agency**
+360 Entertainment & Advertising Agency
+**Creative Director:** April 2021 - Oct 2024, Full-time
+
+- I led my team through integrated campaigns.
+- Mentored and improved motivation for designers under my team, resulting in a regional award.
+
+#### Notable Clients
+
+- Example Beverage Group - regional portfolio
+"""
+        draft = valid_draft()
+        draft.resume += """
+
+COMPANY: Example Creative Agency | 360 Entertainment & Advertising Agency
+CREATIVE DIRECTOR - April 2021 - Oct 2024, Full-time
+- I led my team through integrated campaigns.
+- Mentored and improved motivation for designers under my team, resulting in a regional award.
+
+SUBHEADING: Notable Clients
+- Example Beverage Group - regional portfolio
+"""
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+        issue_codes = {
+            issue.code
+            for issue in validate_draft(
+                fixed,
+                owner_name="Alex Example",
+                source_resume=source_resume,
+                source_materials=source_resume,
+                job_type="design",
+            )
+        }
+
+        self.assertIn("Led the team through integrated campaigns.", fixed.resume)
+        self.assertIn(
+            "Mentored and improved motivation for designers on the team, "
+            "resulting in a regional award.",
+            fixed.resume,
+        )
+        self.assertEqual(
+            fixed.resume.count("Led the team through integrated campaigns."),
+            1,
+        )
+        self.assertEqual(
+            fixed.resume.count(
+                "Mentored and improved motivation for designers on the team, "
+                "resulting in a regional award."
+            ),
+            1,
+        )
+        self.assertNotIn("RESUME_FIRST_PERSON", issue_codes)
+
+    def test_safe_fixes_filter_only_rewritten_design_source_bullets(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director
+**Example Creative Agency**
+360 Entertainment & Advertising Agency
+**Creative Director:** April 2021 - Oct 2024, Full-time
+
+- Spearheaded numerous 360-degree marketing campaigns and stakeholder communication from ideation to execution that led to 90M+ impressions across APAC, increased revenue, and elevated brand positioning.
+- Provided creative leadership and contributed to key board-level decision-making, resulting in 300% company growth and CAD 1.5M-2M in gross profits yearly.
+- Mentored and improved motivation for designers on the team, resulting in a regional award, millions of impressions, and millions in positive brand value.
+- Handled 10+ active clients across Southeast Asia, ensuring a 90%+ repeat business rate and showing commitment to customer loyalty and service excellence.
+
+#### Notable Clients
+
+- Example Beverage Group - regional portfolio
+"""
+        source_materials = source_resume + """
+
+## Interview Transcript
+
+Developed a production intake system that cut approval cycles by 35%.
+"""
+        rewritten_campaign = (
+            "Spearheaded numerous 360-degree marketing campaigns and stakeholder "
+            "communications from ideation to execution. These initiatives generated "
+            "over 90M+ impressions across the APAC region, significantly increasing "
+            "revenue and elevating brand positioning."
+        )
+        rewritten_growth = (
+            "Provided creative leadership and directly contributed to key board-level "
+            "decision making, resulting in a recorded 300% company growth and "
+            "generating an annual gross profit between CAD 1.5M-2M."
+        )
+        rewritten_mentorship = (
+            "Mentored team designers, leading improvements that resulted in regional "
+            "awards, millions of impressions, and increased positive brand value."
+        )
+        rewritten_client_work = (
+            "Managed over 10 active client accounts across Southeast Asia, maintaining "
+            "a 90%+ repeat business rate and establishing deep customer loyalty through "
+            "service excellence."
+        )
+        distinct_addition = (
+            "Developed a production intake system that cut approval cycles by 35%."
+        )
+        draft = valid_draft()
+        draft.resume += f"""
+
+COMPANY: Example Creative Agency | 360 Entertainment & Advertising Agency
+CREATIVE DIRECTOR - April 2021 - Oct 2024, Full-time
+● {rewritten_campaign}
+● {rewritten_growth}
+● {rewritten_mentorship}
+● {rewritten_client_work}
+● {distinct_addition}
+
+SUBHEADING: Notable Clients
+● Example Beverage Group - regional portfolio
+"""
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+            source_materials=source_materials,
+            job_type="design",
+        )
+
+        self.assertNotIn(rewritten_campaign, fixed.resume)
+        self.assertNotIn(rewritten_growth, fixed.resume)
+        self.assertNotIn(rewritten_mentorship, fixed.resume)
+        self.assertNotIn(rewritten_client_work, fixed.resume)
+        self.assertIn(distinct_addition, fixed.resume)
+        self.assertEqual(fixed.resume.count("90M+ impressions across APAC"), 1)
+        self.assertEqual(fixed.resume.count("300% company growth"), 1)
+        self.assertEqual(fixed.resume.count("millions of impressions"), 1)
+        self.assertEqual(fixed.resume.count("10+ active clients"), 1)
+
     def test_safe_fixes_apply_development_header_and_section_contract(self):
         instructions = """RESUME HEADER - REQUIRED EXACT VALUES:
 CONTACT: alex@example.com | +1 555 010 0000 | Calgary, AB
