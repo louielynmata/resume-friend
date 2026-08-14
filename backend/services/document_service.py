@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -36,6 +36,7 @@ async def build_documents(
     owner_name: str,
     position_slug: str,
     output_dir: Path,
+    required_resume_hyperlinks: Mapping[str, str] | None = None,
 ) -> dict:
     resume_text = _extract_tag(ai_response, "RESUME")
     cl_text = _extract_tag(ai_response, "COVER_LETTER")
@@ -47,6 +48,11 @@ async def build_documents(
         docx_path = _build_resume_docx(resume_text, docx_path)
         result["resume_docx"] = str(docx_path)
         result["resume_pdf"] = _to_pdf(docx_path)
+        if result["resume_pdf"]:
+            _ensure_pdf_hyperlinks(
+                Path(result["resume_pdf"]),
+                required_resume_hyperlinks or {},
+            )
     else:
         raise ValueError("AI response did not contain a <RESUME> section.")
 
@@ -996,6 +1002,49 @@ def _build_cover_letter_docx(content: str, path: Path) -> Path:
 
 
 # ── PDF conversion ─────────────────────────────────────────────────────────────
+
+def _ensure_pdf_hyperlinks(
+    pdf_path: Path,
+    required_hyperlinks: Mapping[str, str],
+) -> None:
+    if not required_hyperlinks or not pdf_path.exists():
+        return
+    try:
+        import pymupdf
+
+        changed = False
+        with pymupdf.open(pdf_path) as document:
+            for page in document:
+                links = page.get_links()
+                for label, expected_url in required_hyperlinks.items():
+                    for label_rect in page.search_for(label):
+                        overlapping = [
+                            link
+                            for link in links
+                            if pymupdf.Rect(link["from"]).intersects(label_rect)
+                        ]
+                        exact = [
+                            link
+                            for link in overlapping
+                            if link.get("uri") == expected_url
+                        ]
+                        if exact:
+                            continue
+                        for link in overlapping:
+                            page.delete_link(link)
+                        page.insert_link(
+                            {
+                                "kind": pymupdf.LINK_URI,
+                                "from": label_rect,
+                                "uri": expected_url,
+                            }
+                        )
+                        changed = True
+            if changed:
+                document.saveIncr()
+    except Exception:
+        return
+
 
 def _to_pdf(docx_path: Path) -> Optional[str]:
     try:

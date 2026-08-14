@@ -4,6 +4,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.oxml.ns import qn
 
 from backend.services.document_service import (
     _build_cover_letter_docx,
@@ -461,6 +462,25 @@ Designer focused on accessible digital experiences.
             self.assertEqual(work_samples.alignment, 1)
             self.assertIn(portfolio_url, hyperlink_targets)
             self.assertIn(case_studies_url, hyperlink_targets)
+
+            rendered_targets = {}
+            for hyperlink in document.element.body.iter(qn("w:hyperlink")):
+                label = "".join(
+                    node.text or "" for node in hyperlink.iter(qn("w:t"))
+                )
+                relationship_id = hyperlink.get(qn("r:id"))
+                rendered_targets[label] = document.part.rels[
+                    relationship_id
+                ].target_ref
+
+            self.assertEqual(
+                rendered_targets["Design Portfolio (Reel and PDF)"],
+                portfolio_url,
+            )
+            self.assertEqual(
+                rendered_targets["Case Studies and Product Work"],
+                case_studies_url,
+            )
 
 
 if __name__ == "__main__":
