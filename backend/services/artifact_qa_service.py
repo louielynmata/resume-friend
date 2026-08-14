@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import re
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 from docx import Document
+from docx.oxml.ns import qn
 
 from ..config import settings
 from ..qa_models import ArtifactQAResult, QAIssue, QASeverity, VisualQAResult
@@ -12,15 +14,29 @@ from .ai_service import generate_structured
 
 
 _VISUAL_QA_PROMPT_FILE = "visual_qa_prompt.md"
+WORK_SAMPLE_ARTIFACT_ISSUE_CODES = frozenset(
+    {
+        "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_MISSING",
+        "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_TARGET_MISMATCH",
+        "PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+        "PDF_REQUIRED_WORK_SAMPLE_LINK_TARGET_MISMATCH",
+    }
+)
 
 
 def inspect_artifacts(
     docs: dict,
     *,
     resume_max_pages: int | None = None,
+    required_resume_hyperlinks: Mapping[str, str] | None = None,
 ) -> ArtifactQAResult:
     result = ArtifactQAResult()
-    _inspect_docx(docs.get("resume_docx"), "resume", result)
+    _inspect_docx(
+        docs.get("resume_docx"),
+        "resume",
+        result,
+        required_hyperlinks=required_resume_hyperlinks,
+    )
     _inspect_docx(docs.get("cover_letter_docx"), "cover_letter", result)
 
     result.resume_pages = _inspect_pdf(
@@ -28,6 +44,7 @@ def inspect_artifacts(
         "resume",
         resume_max_pages or settings.qa_resume_max_pages,
         result,
+        required_hyperlinks=required_resume_hyperlinks,
     )
     result.cover_letter_pages = _inspect_pdf(
         docs.get("cover_letter_pdf"),
@@ -113,7 +130,13 @@ async def inspect_artifacts_visually(
         )
 
 
-def _inspect_docx(path_value: str | None, document_name: str, result: ArtifactQAResult) -> None:
+def _inspect_docx(
+    path_value: str | None,
+    document_name: str,
+    result: ArtifactQAResult,
+    *,
+    required_hyperlinks: Mapping[str, str] | None = None,
+) -> None:
     if not path_value:
         _add_issue(
             result,
@@ -165,6 +188,27 @@ def _inspect_docx(path_value: str | None, document_name: str, result: ArtifactQA
             "The rendered DOCX still contains a code fence or placeholder.",
         )
 
+    if required_hyperlinks:
+        hyperlinks = _collect_docx_hyperlinks(document)
+        for label, expected_url in required_hyperlinks.items():
+            targets = hyperlinks.get(label)
+            if not targets:
+                _add_issue(
+                    result,
+                    "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_MISSING",
+                    QASeverity.ERROR,
+                    document_name,
+                    f'The required work-sample label "{label}" is not a DOCX hyperlink.',
+                )
+            elif expected_url not in targets:
+                _add_issue(
+                    result,
+                    "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_TARGET_MISMATCH",
+                    QASeverity.ERROR,
+                    document_name,
+                    f'The DOCX hyperlink for "{label}" has the wrong target.',
+                )
+
     for section in document.sections:
         margins = [
             section.top_margin,
@@ -183,11 +227,26 @@ def _inspect_docx(path_value: str | None, document_name: str, result: ArtifactQA
             break
 
 
+def _collect_docx_hyperlinks(document: Document) -> dict[str, list[str]]:
+    hyperlinks: dict[str, list[str]] = {}
+    for hyperlink in document.element.iter(qn("w:hyperlink")):
+        label = "".join(
+            text_node.text or "" for text_node in hyperlink.iter(qn("w:t"))
+        )
+        relationship_id = hyperlink.get(qn("r:id"))
+        relationship = document.part.rels.get(relationship_id)
+        if label and relationship is not None:
+            hyperlinks.setdefault(label, []).append(relationship.target_ref)
+    return hyperlinks
+
+
 def _inspect_pdf(
     path_value: str | None,
     document_name: str,
     max_pages: int,
     result: ArtifactQAResult,
+    *,
+    required_hyperlinks: Mapping[str, str] | None = None,
 ) -> int | None:
     if not path_value:
         _add_issue(
@@ -242,6 +301,8 @@ def _inspect_pdf(
                     document_name,
                     f"Page {index + 1} is blank or has too little extractable text.",
                 )
+        if required_hyperlinks:
+            _inspect_required_pdf_hyperlinks(path, required_hyperlinks, result)
         return page_count
     except ImportError:
         _add_issue(
@@ -260,6 +321,52 @@ def _inspect_pdf(
             f"The PDF could not be validated: {exc}",
         )
     return None
+
+
+def _inspect_required_pdf_hyperlinks(
+    path: Path,
+    required_hyperlinks: Mapping[str, str],
+    result: ArtifactQAResult,
+) -> None:
+    import pymupdf
+
+    found_targets = {label: [] for label in required_hyperlinks}
+    found_labels = {label: False for label in required_hyperlinks}
+    with pymupdf.open(path) as document:
+        for page in document:
+            uri_links = [
+                link
+                for link in page.get_links()
+                if link.get("kind") == pymupdf.LINK_URI and link.get("uri")
+            ]
+            for label in required_hyperlinks:
+                label_rects = page.search_for(label)
+                if not label_rects:
+                    continue
+                found_labels[label] = True
+                for link in uri_links:
+                    link_rect = pymupdf.Rect(link["from"])
+                    if any(link_rect.intersects(rect) for rect in label_rects):
+                        found_targets[label].append(link["uri"])
+
+    for label, expected_url in required_hyperlinks.items():
+        targets = found_targets[label]
+        if not found_labels[label] or not targets:
+            _add_issue(
+                result,
+                "PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+                QASeverity.ERROR,
+                "resume",
+                f'The required work-sample label "{label}" is not linked in the PDF.',
+            )
+        elif expected_url not in targets:
+            _add_issue(
+                result,
+                "PDF_REQUIRED_WORK_SAMPLE_LINK_TARGET_MISMATCH",
+                QASeverity.ERROR,
+                "resume",
+                f'The PDF link for "{label}" has the wrong target.',
+            )
 
 
 def _render_pdf(pdf_path: Path, output_dir: Path, label: str) -> list[Path]:
