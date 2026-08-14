@@ -19,6 +19,7 @@ from backend.routers.generate import (
     generate,
 )
 from backend.schemas import GenerateRequest
+from backend.services.qa_pipeline import QAPipelineValidationError
 from backend.services.work_sample_links import required_work_sample_links
 
 
@@ -141,6 +142,80 @@ class GenerateWorkSamplePreflightTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(raised.exception.detail["stage"], "load_model_files")
         provider.assert_not_awaited()
+
+    async def test_work_sample_validation_failure_never_logs_to_notion(self):
+        request = GenerateRequest(
+            job_description="A real software job description",
+            ai_provider="ollama",
+            job_type="development",
+            position="Software Engineer",
+            company="Example Co",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            report_path = root / "qa_report.json"
+            report_path.write_text("{}", encoding="utf-8")
+            model_files = mock.Mock(
+                resume="Resume facts",
+                instructions="Instructions",
+                writing_examples="Writing sample",
+                transcript="Transcript",
+                system_prompt="System prompt",
+                required_work_sample_links={
+                    "Case Studies and Product Work":
+                    "https://figma.example/case-studies"
+                },
+            )
+            validation_error = QAPipelineValidationError(
+                "PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+                report_path,
+                "artifact_validation",
+            )
+            with mock.patch(
+                "backend.routers.generate._load_generation_model_files",
+                return_value=model_files,
+            ), mock.patch(
+                "backend.routers.generate._call_generation_provider",
+                new=AsyncMock(
+                    return_value=(
+                        "<RESUME>x</RESUME>"
+                        "<COVER_LETTER>y</COVER_LETTER>"
+                    )
+                ),
+            ), mock.patch(
+                "backend.routers.generate._prepare_run_output",
+                return_value=mock.Mock(
+                    position_slug="SoftwareEngineer",
+                    folder_name="run",
+                    output_dir=root,
+                ),
+            ), mock.patch(
+                "backend.routers.generate.run_qa_pipeline",
+                new=AsyncMock(side_effect=validation_error),
+            ) as pipeline, mock.patch(
+                "backend.routers.generate.log_application",
+                new=AsyncMock(),
+            ) as notion:
+                with self.assertRaises(HTTPException) as raised:
+                    await _run_generation(request, 0.0)
+
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertEqual(
+            raised.exception.detail["code"],
+            "QA_VALIDATION_FAILED",
+        )
+        self.assertEqual(
+            raised.exception.detail["stage"],
+            "artifact_validation",
+        )
+        self.assertEqual(
+            pipeline.await_args.kwargs["required_work_sample_links"],
+            {
+                "Case Studies and Product Work":
+                "https://figma.example/case-studies"
+            },
+        )
+        notion.assert_not_awaited()
 
 
 if __name__ == "__main__":

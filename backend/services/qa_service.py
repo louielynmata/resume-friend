@@ -904,10 +904,15 @@ def _restore_required_resume_header(
         ),
         len(lines),
     )
+    required_markers = {
+        marker
+        for line in required
+        if (marker := _header_marker_name(line)) is not None
+    }
     header = [
         line
         for line in lines[:first_section]
-        if _header_marker_name(line) is None
+        if _header_marker_name(line) not in required_markers
     ]
     body = lines[first_section:]
 

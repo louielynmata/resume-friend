@@ -96,6 +96,20 @@ class WorkSampleSemanticQATests(unittest.TestCase):
         self.assertIn(format_work_samples_line(DEVELOPMENT_LINKS), fixed.resume)
         self.assertNotIn(DESIGN_PORTFOLIO_LABEL, fixed.resume)
 
+    def test_safe_fixes_preserve_identity_when_only_work_samples_are_required(self):
+        fixed, _ = apply_safe_deterministic_fixes(
+            valid_draft(),
+            owner_name="Alex Example",
+            source_materials=SOURCE_RESUME,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn("NAME: Alex Example", fixed.resume)
+        self.assertIn("ROLE: Product Designer", fixed.resume)
+        self.assertIn("CONTACT: alex@example.com", fixed.resume)
+        self.assertIn(format_work_samples_line(DEVELOPMENT_LINKS), fixed.resume)
+
     def test_validator_rejects_plain_text_required_label(self):
         draft = valid_draft()
         draft.resume = draft.resume.replace(

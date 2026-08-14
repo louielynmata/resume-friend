@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 from ..config import settings
 from ..qa_models import (
@@ -11,7 +11,11 @@ from ..qa_models import (
     QARunReport,
     QASeverity,
 )
-from .artifact_qa_service import inspect_artifacts, inspect_artifacts_visually
+from .artifact_qa_service import (
+    WORK_SAMPLE_ARTIFACT_ISSUE_CODES,
+    inspect_artifacts,
+    inspect_artifacts_visually,
+)
 from .document_service import build_documents
 from .qa_service import (
     apply_safe_deterministic_fixes,
@@ -55,6 +59,7 @@ async def run_qa_pipeline(
     company: str,
     position_slug: str,
     output_dir: Path,
+    required_work_sample_links: Mapping[str, str],
     job_type: str = "development",
     progress_callback: Callable[[str], None] | None = None,
 ) -> QAPipelineResult:
@@ -65,13 +70,52 @@ async def run_qa_pipeline(
     )
 
     if not settings.qa_enabled:
+        draft, deterministic_changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name=owner_name,
+            target_role=position,
+            source_resume=source_resume,
+            source_materials=source_materials,
+            job_type=job_type,
+            required_work_sample_links=required_work_sample_links,
+        )
         _notify_progress(progress_callback, "build_documents")
         docs = await build_documents(
             ai_response=draft_to_ai_response(draft),
             owner_name=owner_name,
             position_slug=position_slug,
             output_dir=output_dir,
+            required_resume_hyperlinks=required_work_sample_links,
         )
+        resume_max_pages = (
+            settings.qa_design_resume_max_pages
+            if job_type == "design"
+            else settings.qa_resume_max_pages
+        )
+        _notify_progress(progress_callback, "artifact_validation")
+        artifact_result = inspect_artifacts(
+            docs,
+            resume_max_pages=resume_max_pages,
+            required_resume_hyperlinks=required_work_sample_links,
+        )
+        required_link_issues = [
+            issue
+            for issue in _blocking(artifact_result.issues)
+            if issue.code in WORK_SAMPLE_ARTIFACT_ISSUE_CODES
+        ]
+        if required_link_issues:
+            return _finish_or_raise_validation(
+                output_dir=output_dir,
+                provider=qa_provider,
+                iterations=0,
+                issues=required_link_issues,
+                findings=[],
+                changes=deterministic_changes,
+                resume_pages=artifact_result.resume_pages,
+                cover_letter_pages=artifact_result.cover_letter_pages,
+                draft=draft,
+                docs=docs,
+            )
         report = QARunReport(status="disabled", provider=qa_provider)
         report_path = _write_report(output_dir, report)
         return QAPipelineResult(draft, docs, report, report_path)
@@ -91,6 +135,7 @@ async def run_qa_pipeline(
         source_resume=source_resume,
         source_materials=source_materials,
         job_type=job_type,
+        required_work_sample_links=required_work_sample_links,
     )
     _extend_unique(changes_made, deterministic_changes)
 
@@ -100,6 +145,7 @@ async def run_qa_pipeline(
         source_resume=source_resume,
         source_materials=source_materials,
         job_type=job_type,
+        required_work_sample_links=required_work_sample_links,
     )
 
     while True:
@@ -112,6 +158,7 @@ async def run_qa_pipeline(
                         owner_name=owner_name,
                         position_slug=position_slug,
                         output_dir=output_dir,
+                        required_resume_hyperlinks=required_work_sample_links,
                     )
                 return _finish_or_raise_validation(
                     output_dir=output_dir,
@@ -157,6 +204,7 @@ async def run_qa_pipeline(
                 source_resume=source_resume,
                 source_materials=source_materials,
                 job_type=job_type,
+                required_work_sample_links=required_work_sample_links,
             )
             iterations += 1
             _extend_unique(changes_made, correction.changes_made)
@@ -169,6 +217,7 @@ async def run_qa_pipeline(
             source_resume=source_resume,
             source_materials=source_materials,
             job_type=job_type,
+            required_work_sample_links=required_work_sample_links,
         )
         if _blocking(pending_issues):
             continue
@@ -179,6 +228,7 @@ async def run_qa_pipeline(
             owner_name=owner_name,
             position_slug=position_slug,
             output_dir=output_dir,
+            required_resume_hyperlinks=required_work_sample_links,
         )
         resume_max_pages = (
             settings.qa_design_resume_max_pages
@@ -189,6 +239,7 @@ async def run_qa_pipeline(
         artifact_result = inspect_artifacts(
             docs,
             resume_max_pages=resume_max_pages,
+            required_resume_hyperlinks=required_work_sample_links,
         )
         final_issues = [*pending_issues, *artifact_result.issues]
 
@@ -329,9 +380,14 @@ def _finish_or_raise_validation(
         draft_path=str(draft_path.resolve()),
     )
     report_path = _write_report(output_dir, report)
-    if settings.qa_fail_open:
+    blocking_issues = _blocking(issues)
+    has_required_link_failure = any(
+        issue.code in WORK_SAMPLE_ARTIFACT_ISSUE_CODES
+        for issue in blocking_issues
+    )
+    if settings.qa_fail_open and not has_required_link_failure:
         return QAPipelineResult(draft, docs or {}, report, report_path)
-    codes = ", ".join(issue.code for issue in _blocking(issues))
+    codes = ", ".join(issue.code for issue in blocking_issues)
     raise QAPipelineValidationError(
         f"QA could not resolve all blocking issues after {iterations} review attempt(s): {codes}",
         report_path,

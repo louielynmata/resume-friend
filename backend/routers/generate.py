@@ -551,6 +551,7 @@ async def _run_review_fix_build_validate_stages(
             position_slug=run_output.position_slug,
             output_dir=run_output.output_dir,
             job_type=req.job_type,
+            required_work_sample_links=model_files.required_work_sample_links,
             progress_callback=_set_generation_stage,
         )
     except QAPipelineValidationError as exc:
