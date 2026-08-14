@@ -3,6 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from unittest.mock import AsyncMock
+
+from fastapi import HTTPException
 
 from backend.config import settings
 from backend.routers.generate import (
@@ -11,10 +14,20 @@ from backend.routers.generate import (
     _generation_progress,
     _http_error,
     _record_generation_progress,
+    _run_generation,
     get_generation_status,
     generate,
 )
 from backend.schemas import GenerateRequest
+from backend.services.work_sample_links import required_work_sample_links
+
+
+def write_generation_files(root: Path, instructions: str) -> None:
+    (root / "design_resume.md").write_text("Design resume facts", encoding="utf-8")
+    (root / "dev_resume.md").write_text("Development resume facts", encoding="utf-8")
+    (root / "instructions_prompt.md").write_text(instructions, encoding="utf-8")
+    (root / "writing_examples.md").write_text("Writing sample", encoding="utf-8")
+    (root / "school_transcript.md").write_text("Transcript facts", encoding="utf-8")
 
 
 class GenerateRouterTests(unittest.TestCase):
@@ -93,6 +106,41 @@ class GenerateRouterTests(unittest.TestCase):
             asyncio.run(generate(request))
 
         self.assertEqual(captured_location, "Calgary")
+
+
+class GenerateWorkSamplePreflightTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_design_portfolio_fails_before_provider_call(self):
+        request = GenerateRequest(
+            job_description="A real design job description",
+            ai_provider="ollama",
+            job_type="design",
+            position="Product Designer",
+            company="Example Co",
+        )
+        instructions = (
+            "WORK_SAMPLES: [Case Studies and Product Work]"
+            "(https://figma.example/case-studies)"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_generation_files(root, instructions)
+            with mock.patch.object(
+                settings, "model_files_dir", str(root)
+            ), mock.patch(
+                "backend.routers.generate._call_generation_provider",
+                new=AsyncMock(),
+            ) as provider:
+                with self.assertRaises(HTTPException) as raised:
+                    await _run_generation(request, 0.0)
+
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertEqual(
+            raised.exception.detail["code"],
+            "SOURCE_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+        )
+        self.assertEqual(raised.exception.detail["stage"], "load_model_files")
+        provider.assert_not_awaited()
 
 
 if __name__ == "__main__":
