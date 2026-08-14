@@ -85,6 +85,34 @@ class PDFHyperlinkRepairTests(unittest.TestCase):
                 [DESIGN_LINKS[CASE_STUDIES_LABEL]],
             )
 
+    def test_removes_wrong_target_when_exact_target_also_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.pdf"
+            write_visible_labels_pdf(path, (CASE_STUDIES_LABEL,))
+            with pymupdf.open(path) as document:
+                page = document[0]
+                label_rect = page.search_for(CASE_STUDIES_LABEL)[0]
+                for url in (
+                    DESIGN_LINKS[CASE_STUDIES_LABEL],
+                    "https://wrong.example/case-studies",
+                ):
+                    page.insert_link(
+                        {
+                            "kind": pymupdf.LINK_URI,
+                            "from": label_rect,
+                            "uri": url,
+                        }
+                    )
+                document.saveIncr()
+            _ensure_pdf_hyperlinks(
+                path,
+                {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]},
+            )
+            self.assertEqual(
+                linked_targets_for_label(path, CASE_STUDIES_LABEL),
+                [DESIGN_LINKS[CASE_STUDIES_LABEL]],
+            )
+
     def test_does_not_guess_a_rectangle_for_missing_label(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "resume.pdf"

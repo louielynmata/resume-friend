@@ -1029,6 +1029,10 @@ def _ensure_pdf_hyperlinks(
                             if link.get("uri") == expected_url
                         ]
                         if exact:
+                            for link in overlapping:
+                                if link.get("uri") != expected_url:
+                                    page.delete_link(link)
+                                    changed = True
                             continue
                         for link in overlapping:
                             page.delete_link(link)
