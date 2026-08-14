@@ -31,6 +31,8 @@ CONTACT: [Copy one compact contact line from the supplied materials; values only
 LINKS: [Copy relevant professional links exactly from the supplied materials]
 WORK_SAMPLES: [Copy supported portfolio/case-study links using `[Visible label](exact URL)` syntax. Include the design portfolio only for DESIGN; include case studies for either track when supplied.]
 
+Never output an included work-sample label as plain text; preserve the complete [label](exact URL) pair.
+
 PROFESSIONAL SUMMARY
 [3-5 sentences. Use **bold** inline for key phrases. Do not use dash sentence connectors.]
 

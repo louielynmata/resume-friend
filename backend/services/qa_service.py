@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -18,6 +18,7 @@ from .document_normalization import (
     RESUME_SECTION_NAMES as _RESUME_SECTION_NAMES,
     normalize_resume_bullets,
 )
+from .work_sample_links import format_work_samples_line
 
 
 _TAG_RE = re.compile(r"<(?P<tag>RESUME|COVER_LETTER|ANALYSIS)>(?P<body>.*?)</(?P=tag)>", re.DOTALL)
@@ -122,6 +123,7 @@ def apply_safe_deterministic_fixes(
     source_resume: str = "",
     source_materials: str = "",
     job_type: str = "",
+    required_work_sample_links: Mapping[str, str] | None = None,
 ) -> tuple[DocumentDraft, list[str]]:
     """Restore trusted mechanical invariants without asking an AI to infer them."""
     fixed = draft.model_copy(deep=True)
@@ -219,11 +221,17 @@ def apply_safe_deterministic_fixes(
             fixed.resume,
             trusted_materials,
             job_type=job_type,
+            required_work_sample_links=required_work_sample_links,
         )
         if header_changed:
-            changes.append(
-                "Restored the track-specific resume header links from the applicant instructions."
-            )
+            if required_work_sample_links:
+                changes.append(
+                    "Restored the track-required work-sample links from applicant instructions."
+                )
+            else:
+                changes.append(
+                    "Restored the track-specific resume header links from the applicant instructions."
+                )
 
         fixed.resume, resume_urls_changed = _restore_source_supported_urls(
             fixed.resume,
@@ -305,6 +313,7 @@ def validate_draft(
     source_resume: str,
     source_materials: str,
     job_type: str = "",
+    required_work_sample_links: Mapping[str, str] | None = None,
 ) -> list[QAIssue]:
     issues: list[QAIssue] = []
 
@@ -335,6 +344,7 @@ def validate_draft(
         owner_name=owner_name,
         source_materials=source_materials,
         job_type=job_type,
+        required_work_sample_links=required_work_sample_links,
         add=add,
     )
     source_requirements = _validate_truthfulness(
@@ -379,6 +389,7 @@ def _validate_structure(
     owner_name: str,
     source_materials: str,
     job_type: str,
+    required_work_sample_links: Mapping[str, str] | None = None,
     add: _AddIssue,
 ) -> None:
 
@@ -395,10 +406,28 @@ def _validate_structure(
     required_header_lines = _required_resume_header_lines(
         source_materials,
         job_type=job_type,
+        required_work_sample_links=required_work_sample_links,
     )
+    required_work_sample_line = (
+        format_work_samples_line(required_work_sample_links)
+        if required_work_sample_links
+        else None
+    )
+    if required_work_sample_line and not re.search(
+        rf"(?im)^{re.escape(required_work_sample_line)}\s*$",
+        resume,
+    ):
+        add(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            "structure",
+            QASeverity.ERROR,
+            "resume",
+            "The resume must preserve the required labeled work-sample links exactly.",
+        )
     missing_header_lines = [
         line
         for line in required_header_lines
+        if line != required_work_sample_line
         if not re.search(rf"(?im)^{re.escape(line)}\s*$", resume)
     ]
     if missing_header_lines:
@@ -810,7 +839,12 @@ def _extract_required_block(text: str, start: str, end: str) -> list[str]:
     return [line.strip() for line in match.group(1).splitlines() if line.strip()]
 
 
-def _required_resume_header_lines(text: str, *, job_type: str) -> list[str]:
+def _required_resume_header_lines(
+    text: str,
+    *,
+    job_type: str,
+    required_work_sample_links: Mapping[str, str] | None = None,
+) -> list[str]:
     required = _extract_required_block(
         text,
         "RESUME HEADER - REQUIRED EXACT VALUES:",
@@ -825,6 +859,13 @@ def _required_resume_header_lines(text: str, *, job_type: str) -> list[str]:
                 f"END {normalized_job_type} RESUME HEADER",
             )
         )
+    if required_work_sample_links:
+        required = [
+            line
+            for line in required
+            if _header_marker_name(line) not in {"WORK_SAMPLES", "WORK SAMPLES"}
+        ]
+        required.append(format_work_samples_line(required_work_sample_links))
     return list(dict.fromkeys(required))
 
 
@@ -844,10 +885,12 @@ def _restore_required_resume_header(
     source_materials: str,
     *,
     job_type: str,
+    required_work_sample_links: Mapping[str, str] | None = None,
 ) -> tuple[str, bool]:
     required = _required_resume_header_lines(
         source_materials,
         job_type=job_type,
+        required_work_sample_links=required_work_sample_links,
     )
     if not required:
         return text.strip(), False

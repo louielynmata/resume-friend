@@ -8,6 +8,11 @@ from backend.services.qa_service import (
     parse_document_draft,
     validate_draft,
 )
+from backend.services.work_sample_links import (
+    CASE_STUDIES_LABEL,
+    DESIGN_PORTFOLIO_LABEL,
+    format_work_samples_line,
+)
 
 
 SOURCE_RESUME = """Alex Example
@@ -15,6 +20,17 @@ alex@example.com
 https://github.com/alex
 Designer at Example Studio, 2020 - Present
 """
+
+DESIGN_LINKS = {
+    DESIGN_PORTFOLIO_LABEL: "https://drive.example/design-portfolio",
+    CASE_STUDIES_LABEL: "https://figma.example/case-studies",
+}
+DEVELOPMENT_LINKS = {
+    CASE_STUDIES_LABEL: "https://figma.example/case-studies",
+}
+SOURCE_WITH_DEVELOPMENT_LINKS = (
+    SOURCE_RESUME + "\n" + format_work_samples_line(DEVELOPMENT_LINKS)
+)
 
 
 def valid_draft() -> DocumentDraft:
@@ -49,6 +65,103 @@ alex@example.com
 SCORE_RATIONALE: Supported design experience aligns with the role.
 """,
     )
+
+
+class WorkSampleSemanticQATests(unittest.TestCase):
+    def test_safe_fixes_restore_design_links_without_relying_on_model_output(self):
+        draft = valid_draft()
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_materials=SOURCE_RESUME,
+            job_type="design",
+            required_work_sample_links=DESIGN_LINKS,
+        )
+
+        self.assertIn(format_work_samples_line(DESIGN_LINKS), fixed.resume)
+        self.assertIn("work-sample links", " ".join(changes).lower())
+
+    def test_safe_fixes_keep_development_track_case_studies_only(self):
+        draft = valid_draft()
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_materials=SOURCE_RESUME,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn(format_work_samples_line(DEVELOPMENT_LINKS), fixed.resume)
+        self.assertNotIn(DESIGN_PORTFOLIO_LABEL, fixed.resume)
+
+    def test_validator_rejects_plain_text_required_label(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "LINKS: https://github.com/alex",
+            "LINKS: https://github.com/alex\n"
+            f"WORK_SAMPLES: {CASE_STUDIES_LABEL}",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            source_materials=SOURCE_WITH_DEVELOPMENT_LINKS,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            {issue.code for issue in issues},
+        )
+
+    def test_validator_rejects_wrong_required_target(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "LINKS: https://github.com/alex",
+            "LINKS: https://github.com/alex\n"
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL}]"
+            "(https://wrong.example/case-studies)",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            source_materials=SOURCE_WITH_DEVELOPMENT_LINKS,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            {issue.code for issue in issues},
+        )
+
+    def test_validator_accepts_exact_track_required_line(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "LINKS: https://github.com/alex",
+            "LINKS: https://github.com/alex\n"
+            + format_work_samples_line(DEVELOPMENT_LINKS),
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            source_materials=SOURCE_WITH_DEVELOPMENT_LINKS,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertNotIn(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            {issue.code for issue in issues},
+        )
 
 
 class QAServiceTests(unittest.TestCase):
@@ -408,7 +521,8 @@ Example Studio
         )
 
         self.assertIn(
-            "WORK_SAMPLES: [Design Portfolio (Reel and PDF)]",
+            "WORK_SAMPLES: [Design Portfolio (Reel and PDF)](https://drive.example/portfolio) "
+            "| [Case Studies and Product Work](https://figma.example/case-studies)",
             fixed.resume,
         )
         self.assertNotIn("CERTIFICATIONS", fixed.resume)
@@ -754,7 +868,7 @@ Software Development Diploma
         )
 
         self.assertIn(
-            "WORK_SAMPLES: [Case Studies and Product Work]",
+            "WORK_SAMPLES: [Case Studies and Product Work](https://figma.example/case-studies)",
             fixed.resume,
         )
         ordered_sections = [

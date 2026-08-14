@@ -25,6 +25,7 @@ Rules:
 - Primary role title is ALL CAPS on the next line, immediately after the rule.
 - Contact info and links follow below the title lines. All header lines are centered.
 - Add a final labeled work-samples line. Include Design Portfolio (Reel and PDF) only for design roles. Include Case Studies and Product Work for design and development roles. Copy every supplied URL character-for-character.
+- Every included work-sample label must keep its complete Markdown URL so the DOCX and PDF remain clickable.
 - After the last header line (links or portfolio), leave one blank line before the body begins.
 - Do NOT add another horizontal rule between the header and PROFESSIONAL SUMMARY.
 
