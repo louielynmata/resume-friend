@@ -5,6 +5,9 @@ from unittest.mock import AsyncMock, patch
 
 import pymupdf
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 from backend.config import settings
 from backend.qa_models import QASeverity, VisualQAResult
@@ -12,7 +15,7 @@ from backend.services.artifact_qa_service import (
     inspect_artifacts,
     inspect_artifacts_visually,
 )
-from backend.services.document_service import _build_resume_docx
+from backend.services.document_service import _add_hyperlink, _build_resume_docx
 from backend.services.work_sample_links import (
     CASE_STUDIES_LABEL,
     DESIGN_PORTFOLIO_LABEL,
@@ -95,6 +98,29 @@ def write_linked_pdf(
                     }
                 )
         document.save(path)
+
+
+def append_non_hyperlink_relationship_label(
+    path: Path,
+    label: str,
+    target: str,
+) -> None:
+    document = Document(path)
+    paragraph = document.add_paragraph()
+    relationship_id = document.part.relate_to(
+        target,
+        RT.IMAGE,
+        is_external=True,
+    )
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), relationship_id)
+    run = OxmlElement("w:r")
+    text = OxmlElement("w:t")
+    text.text = label
+    run.append(text)
+    hyperlink.append(run)
+    paragraph._p.append(hyperlink)
+    document.save(path)
 
 
 class ArtifactQAServiceTests(unittest.TestCase):
@@ -188,6 +214,99 @@ class ArtifactQAServiceTests(unittest.TestCase):
             {issue.code for issue in result.blocking_issues},
         )
 
+    def test_mixed_docx_targets_are_blocking_when_exact_target_is_present(self):
+        expected = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resume_docx = root / "resume.docx"
+            cover_docx = root / "cover.docx"
+            resume_pdf = root / "resume.pdf"
+            write_resume_docx(resume_docx, expected)
+            document = Document(resume_docx)
+            paragraph = document.add_paragraph()
+            _add_hyperlink(
+                paragraph,
+                CASE_STUDIES_LABEL,
+                "https://wrong.example/case-studies",
+                8.5,
+            )
+            document.save(resume_docx)
+            write_docx(cover_docx, "Cover Letter")
+            write_linked_pdf(
+                resume_pdf,
+                (CASE_STUDIES_LABEL,),
+                expected,
+            )
+
+            result = inspect_artifacts(
+                {
+                    "resume_docx": str(resume_docx),
+                    "cover_letter_docx": str(cover_docx),
+                    "resume_pdf": str(resume_pdf),
+                },
+                required_resume_hyperlinks=expected,
+            )
+
+        self.assertIn(
+            "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_TARGET_MISMATCH",
+            {issue.code for issue in result.blocking_issues},
+        )
+
+    def test_non_hyperlink_docx_relationship_does_not_satisfy_required_link(self):
+        expected = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resume_docx = root / "resume.docx"
+            cover_docx = root / "cover.docx"
+            resume_pdf = root / "resume.pdf"
+            write_resume_docx(resume_docx, None)
+            append_non_hyperlink_relationship_label(
+                resume_docx,
+                CASE_STUDIES_LABEL,
+                expected[CASE_STUDIES_LABEL],
+            )
+            write_docx(cover_docx, "Cover Letter")
+            write_linked_pdf(
+                resume_pdf,
+                (CASE_STUDIES_LABEL,),
+                expected,
+            )
+
+            result = inspect_artifacts(
+                {
+                    "resume_docx": str(resume_docx),
+                    "cover_letter_docx": str(cover_docx),
+                    "resume_pdf": str(resume_pdf),
+                },
+                required_resume_hyperlinks=expected,
+            )
+
+        self.assertIn(
+            "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_MISSING",
+            {issue.code for issue in result.blocking_issues},
+        )
+
+    def test_balanced_parenthesis_docx_target_passes_exact_validation(self):
+        balanced = {
+            CASE_STUDIES_LABEL: (
+                "https://figma.example/files/a_(b)?node=(c)&mode=dev#section"
+            )
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.inspect_resume_pair(
+                Path(tmp),
+                docx_links=balanced,
+                docx_plain_labels=(),
+                pdf_labels=(CASE_STUDIES_LABEL,),
+                pdf_targets=balanced,
+                required=balanced,
+            )
+
+        self.assertNotIn(
+            "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_TARGET_MISMATCH",
+            {issue.code for issue in result.blocking_issues},
+        )
+
     def test_visible_pdf_label_without_annotation_is_blocking(self):
         expected = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
         with tempfile.TemporaryDirectory() as tmp:
@@ -238,7 +357,7 @@ class ArtifactQAServiceTests(unittest.TestCase):
             {issue.code for issue in result.blocking_issues},
         )
 
-    def test_mixed_pdf_targets_pass_when_exact_target_is_present(self):
+    def test_mixed_pdf_targets_are_blocking_when_exact_target_is_present(self):
         expected = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
         with tempfile.TemporaryDirectory() as tmp:
             result = self.inspect_resume_pair(
@@ -254,9 +373,30 @@ class ArtifactQAServiceTests(unittest.TestCase):
                 },
                 required=expected,
             )
-        codes = {issue.code for issue in result.blocking_issues}
-        self.assertNotIn("PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING", codes)
-        self.assertNotIn("PDF_REQUIRED_WORK_SAMPLE_LINK_TARGET_MISMATCH", codes)
+        self.assertIn(
+            "PDF_REQUIRED_WORK_SAMPLE_LINK_TARGET_MISMATCH",
+            {issue.code for issue in result.blocking_issues},
+        )
+
+    def test_case_mutated_pdf_label_does_not_satisfy_exact_required_label(self):
+        expected = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
+        mutated_label = CASE_STUDIES_LABEL.lower()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.inspect_resume_pair(
+                Path(tmp),
+                docx_links=expected,
+                docx_plain_labels=(),
+                pdf_labels=(mutated_label,),
+                pdf_targets={
+                    mutated_label: expected[CASE_STUDIES_LABEL],
+                },
+                required=expected,
+            )
+
+        self.assertIn(
+            "PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+            {issue.code for issue in result.blocking_issues},
+        )
 
     def test_development_does_not_require_design_portfolio(self):
         development = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
@@ -290,6 +430,118 @@ class ArtifactQAServiceTests(unittest.TestCase):
         self.assertIn("PDF_NOT_AVAILABLE", {issue.code for issue in result.issues})
         self.assertNotIn(
             "PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+            {issue.code for issue in result.blocking_issues},
+        )
+
+    def test_uninspectable_required_docx_is_blocking(self):
+        expected = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
+        for condition in ("absent", "missing_path", "empty", "unreadable"):
+            with self.subTest(condition=condition), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                cover_docx = root / "cover.docx"
+                write_docx(cover_docx, "Cover Letter")
+                resume_docx = root / "resume.docx"
+                if condition == "empty":
+                    resume_docx.touch()
+                elif condition == "unreadable":
+                    resume_docx.write_bytes(b"not a Word package")
+                path_value = None if condition == "absent" else str(resume_docx)
+
+                result = inspect_artifacts(
+                    {
+                        "resume_docx": path_value,
+                        "cover_letter_docx": str(cover_docx),
+                    },
+                    required_resume_hyperlinks=expected,
+                )
+
+                self.assertIn(
+                    "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_MISSING",
+                    {issue.code for issue in result.blocking_issues},
+                )
+
+    def test_present_uninspectable_required_pdf_is_blocking(self):
+        expected = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
+        for condition in ("missing_path", "empty", "unreadable"):
+            with self.subTest(condition=condition), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                resume_docx = root / "resume.docx"
+                cover_docx = root / "cover.docx"
+                resume_pdf = root / "resume.pdf"
+                write_resume_docx(resume_docx, expected)
+                write_docx(cover_docx, "Cover Letter")
+                if condition == "empty":
+                    resume_pdf.touch()
+                elif condition == "unreadable":
+                    resume_pdf.write_bytes(b"not a PDF")
+
+                result = inspect_artifacts(
+                    {
+                        "resume_docx": str(resume_docx),
+                        "cover_letter_docx": str(cover_docx),
+                        "resume_pdf": str(resume_pdf),
+                    },
+                    required_resume_hyperlinks=expected,
+                )
+
+                self.assertIn(
+                    "PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+                    {issue.code for issue in result.blocking_issues},
+                )
+
+    def test_pymupdf_unavailable_blocks_required_pdf_inspection(self):
+        expected = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resume_docx = root / "resume.docx"
+            cover_docx = root / "cover.docx"
+            resume_pdf = root / "resume.pdf"
+            write_resume_docx(resume_docx, expected)
+            write_docx(cover_docx, "Cover Letter")
+            write_linked_pdf(resume_pdf, (CASE_STUDIES_LABEL,), expected)
+
+            with patch.dict("sys.modules", {"pymupdf": None}):
+                result = inspect_artifacts(
+                    {
+                        "resume_docx": str(resume_docx),
+                        "cover_letter_docx": str(cover_docx),
+                        "resume_pdf": str(resume_pdf),
+                    },
+                    required_resume_hyperlinks=expected,
+                )
+
+        self.assertIn(
+            "PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+            {issue.code for issue in result.blocking_issues},
+        )
+
+    def test_pypdf_unavailable_does_not_skip_required_annotation_inspection(self):
+        expected = {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resume_docx = root / "resume.docx"
+            cover_docx = root / "cover.docx"
+            resume_pdf = root / "resume.pdf"
+            write_resume_docx(resume_docx, expected)
+            write_docx(cover_docx, "Cover Letter")
+            write_linked_pdf(
+                resume_pdf,
+                (CASE_STUDIES_LABEL,),
+                {CASE_STUDIES_LABEL: "https://wrong.example/case-studies"},
+            )
+
+            with patch.dict("sys.modules", {"pypdf": None}):
+                result = inspect_artifacts(
+                    {
+                        "resume_docx": str(resume_docx),
+                        "cover_letter_docx": str(cover_docx),
+                        "resume_pdf": str(resume_pdf),
+                    },
+                    required_resume_hyperlinks=expected,
+                )
+
+        self.assertIn(
+            "PDF_REQUIRED_WORK_SAMPLE_LINK_TARGET_MISMATCH",
             {issue.code for issue in result.blocking_issues},
         )
 

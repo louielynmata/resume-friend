@@ -155,6 +155,40 @@ class WorkSampleSemanticQATests(unittest.TestCase):
             {issue.code for issue in issues},
         )
 
+    def test_validator_rejects_case_mutated_required_link_line(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "LINKS: https://github.com/alex",
+            "LINKS: https://github.com/alex\n"
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL.lower()}]"
+            f"({DEVELOPMENT_LINKS[CASE_STUDIES_LABEL]})",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            source_materials=SOURCE_WITH_DEVELOPMENT_LINKS,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            {issue.code for issue in issues},
+        )
+
+    def test_source_url_candidates_preserve_balanced_parentheses_exactly(self):
+        balanced_url = (
+            "https://figma.example/files/a_(b)?node=(c)&mode=dev#section"
+        )
+
+        candidates = qa_service._source_url_candidates(
+            f"[{CASE_STUDIES_LABEL}]({balanced_url})"
+        )
+
+        self.assertIn(balanced_url, candidates)
+
     def test_validator_accepts_exact_track_required_line(self):
         draft = valid_draft()
         draft.resume = draft.resume.replace(

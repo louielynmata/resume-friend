@@ -61,6 +61,41 @@ class WorkSampleLinkTests(unittest.TestCase):
             required_work_sample_links(plain_text, "development")
         self.assertEqual(raised.exception.labels, (CASE_STUDIES_LABEL,))
 
+    def test_case_mutated_required_label_does_not_count_as_exact_source_link(self):
+        mutated = (
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL.lower()}]"
+            f"({CASE_STUDIES_URL})"
+        )
+
+        with self.assertRaises(RequiredWorkSampleLinkError) as raised:
+            required_work_sample_links(mutated, "development")
+
+        self.assertEqual(raised.exception.labels, (CASE_STUDIES_LABEL,))
+
+    def test_balanced_parentheses_in_source_url_are_preserved_exactly(self):
+        balanced_url = (
+            "https://figma.example/files/a_(b)?node=(c)&mode=dev#section"
+        )
+        instructions = (
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL}]({balanced_url})"
+        )
+
+        self.assertEqual(
+            required_work_sample_links(instructions, "development"),
+            {CASE_STUDIES_LABEL: balanced_url},
+        )
+
+    def test_unbalanced_parenthesis_source_destination_fails_closed(self):
+        malformed = (
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL}]"
+            "(https://figma.example/files/a_(b)"
+        )
+
+        with self.assertRaises(RequiredWorkSampleLinkError) as raised:
+            required_work_sample_links(malformed, "development")
+
+        self.assertEqual(raised.exception.labels, (CASE_STUDIES_LABEL,))
+
     def test_formatter_preserves_exact_labels_and_urls(self):
         self.assertEqual(
             format_work_samples_line(

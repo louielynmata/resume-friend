@@ -4,6 +4,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pymupdf
+from docx import Document
+from docx.oxml.ns import qn
 
 from backend.services.document_service import (
     _ensure_pdf_hyperlinks,
@@ -121,6 +123,19 @@ class PDFHyperlinkRepairTests(unittest.TestCase):
             with pymupdf.open(path) as document:
                 self.assertEqual(document[0].get_links(), [])
 
+    def test_does_not_repair_case_mutated_visible_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.pdf"
+            write_visible_labels_pdf(path, (CASE_STUDIES_LABEL.lower(),))
+
+            _ensure_pdf_hyperlinks(
+                path,
+                {CASE_STUDIES_LABEL: DESIGN_LINKS[CASE_STUDIES_LABEL]},
+            )
+
+            with pymupdf.open(path) as document:
+                self.assertEqual(document[0].get_links(), [])
+
 
 class DocumentBuildHyperlinkTests(unittest.IsolatedAsyncioTestCase):
     async def test_build_documents_repairs_the_converted_resume_pdf(self):
@@ -153,6 +168,43 @@ class DocumentBuildHyperlinkTests(unittest.IsolatedAsyncioTestCase):
                 linked_targets_for_label(converted_resume, CASE_STUDIES_LABEL),
                 [DESIGN_LINKS[CASE_STUDIES_LABEL]],
             )
+
+    async def test_build_documents_uses_exact_trusted_balanced_parenthesis_target(self):
+        balanced_url = (
+            "https://figma.example/files/a_(b)?node=(c)&mode=dev#section"
+        )
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "LINKS: https://github.com/alex",
+            "LINKS: https://github.com/alex\n"
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL}]"
+            "(https://wrong.example/truncated)",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "backend.services.document_service._to_pdf",
+            side_effect=[None, None],
+        ):
+            result = await build_documents(
+                ai_response=draft_to_ai_response(draft),
+                owner_name="Alex Example",
+                position_slug="SoftwareEngineer",
+                output_dir=Path(tmp),
+                required_resume_hyperlinks={CASE_STUDIES_LABEL: balanced_url},
+            )
+            document = Document(result["resume_docx"])
+            targets = []
+            for hyperlink in document.element.iter(qn("w:hyperlink")):
+                label = "".join(
+                    node.text or "" for node in hyperlink.iter(qn("w:t"))
+                )
+                if label == CASE_STUDIES_LABEL:
+                    relationship_id = hyperlink.get(qn("r:id"))
+                    targets.append(
+                        document.part.rels[relationship_id].target_ref
+                    )
+
+        self.assertEqual(targets, [balanced_url])
 
 
 if __name__ == "__main__":
