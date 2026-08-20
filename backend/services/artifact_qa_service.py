@@ -7,10 +7,12 @@ from pathlib import Path
 
 from docx import Document
 from docx.oxml.ns import qn
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 from ..config import settings
 from ..qa_models import ArtifactQAResult, QAIssue, QASeverity, VisualQAResult
 from .ai_service import generate_structured
+from .document_service import _exact_pdf_label_rects
 
 
 _VISUAL_QA_PROMPT_FILE = "visual_qa_prompt.md"
@@ -145,6 +147,11 @@ def _inspect_docx(
             document_name,
             "The DOCX artifact was not created.",
         )
+        _add_missing_required_docx_hyperlinks(
+            result,
+            document_name,
+            required_hyperlinks,
+        )
         return
 
     path = Path(path_value)
@@ -155,6 +162,11 @@ def _inspect_docx(
             QASeverity.ERROR,
             document_name,
             f"The DOCX artifact is missing or empty: {path}",
+        )
+        _add_missing_required_docx_hyperlinks(
+            result,
+            document_name,
+            required_hyperlinks,
         )
         return
 
@@ -167,6 +179,11 @@ def _inspect_docx(
             QASeverity.ERROR,
             document_name,
             f"The DOCX artifact could not be reopened: {exc}",
+        )
+        _add_missing_required_docx_hyperlinks(
+            result,
+            document_name,
+            required_hyperlinks,
         )
         return
 
@@ -200,7 +217,7 @@ def _inspect_docx(
                     document_name,
                     f'The required work-sample label "{label}" is not a DOCX hyperlink.',
                 )
-            elif expected_url not in targets:
+            elif any(target != expected_url for target in targets):
                 _add_issue(
                     result,
                     "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_TARGET_MISMATCH",
@@ -235,9 +252,30 @@ def _collect_docx_hyperlinks(document: Document) -> dict[str, list[str]]:
         )
         relationship_id = hyperlink.get(qn("r:id"))
         relationship = document.part.rels.get(relationship_id)
-        if label and relationship is not None:
+        if (
+            label
+            and relationship is not None
+            and relationship.reltype == RT.HYPERLINK
+        ):
             hyperlinks.setdefault(label, []).append(relationship.target_ref)
     return hyperlinks
+
+
+def _add_missing_required_docx_hyperlinks(
+    result: ArtifactQAResult,
+    document_name: str,
+    required_hyperlinks: Mapping[str, str] | None,
+) -> None:
+    if document_name != "resume" or not required_hyperlinks:
+        return
+    for label in required_hyperlinks:
+        _add_issue(
+            result,
+            "DOCX_REQUIRED_WORK_SAMPLE_HYPERLINK_MISSING",
+            QASeverity.ERROR,
+            document_name,
+            f'The required work-sample label "{label}" could not be inspected in the DOCX.',
+        )
 
 
 def _inspect_pdf(
@@ -267,8 +305,14 @@ def _inspect_pdf(
             document_name,
             f"The PDF artifact is missing or empty: {path}",
         )
+        _add_missing_required_pdf_hyperlinks(
+            result,
+            document_name,
+            required_hyperlinks,
+        )
         return None
 
+    page_count: int | None = None
     try:
         from pypdf import PdfReader
 
@@ -301,9 +345,6 @@ def _inspect_pdf(
                     document_name,
                     f"Page {index + 1} is blank or has too little extractable text.",
                 )
-        if required_hyperlinks:
-            _inspect_required_pdf_hyperlinks(path, required_hyperlinks, result)
-        return page_count
     except ImportError:
         _add_issue(
             result,
@@ -320,7 +361,17 @@ def _inspect_pdf(
             document_name,
             f"The PDF could not be validated: {exc}",
         )
-    return None
+
+    if required_hyperlinks:
+        try:
+            _inspect_required_pdf_hyperlinks(path, required_hyperlinks, result)
+        except Exception:
+            _add_missing_required_pdf_hyperlinks(
+                result,
+                document_name,
+                required_hyperlinks,
+            )
+    return page_count
 
 
 def _inspect_required_pdf_hyperlinks(
@@ -340,7 +391,7 @@ def _inspect_required_pdf_hyperlinks(
                 if link.get("kind") == pymupdf.LINK_URI and link.get("uri")
             ]
             for label in required_hyperlinks:
-                label_rects = page.search_for(label)
+                label_rects = _exact_pdf_label_rects(page, label)
                 if not label_rects:
                     continue
                 found_labels[label] = True
@@ -359,7 +410,7 @@ def _inspect_required_pdf_hyperlinks(
                 "resume",
                 f'The required work-sample label "{label}" is not linked in the PDF.',
             )
-        elif expected_url not in targets:
+        elif any(target != expected_url for target in targets):
             _add_issue(
                 result,
                 "PDF_REQUIRED_WORK_SAMPLE_LINK_TARGET_MISMATCH",
@@ -367,6 +418,23 @@ def _inspect_required_pdf_hyperlinks(
                 "resume",
                 f'The PDF link for "{label}" has the wrong target.',
             )
+
+
+def _add_missing_required_pdf_hyperlinks(
+    result: ArtifactQAResult,
+    document_name: str,
+    required_hyperlinks: Mapping[str, str] | None,
+) -> None:
+    if document_name != "resume" or not required_hyperlinks:
+        return
+    for label in required_hyperlinks:
+        _add_issue(
+            result,
+            "PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+            QASeverity.ERROR,
+            document_name,
+            f'The required work-sample label "{label}" could not be inspected in the PDF.',
+        )
 
 
 def _render_pdf(pdf_path: Path, output_dir: Path, label: str) -> list[Path]:

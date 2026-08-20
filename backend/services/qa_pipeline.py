@@ -25,6 +25,11 @@ from .qa_service import (
 )
 
 
+_REQUIRED_WORK_SAMPLE_ISSUE_CODES = WORK_SAMPLE_ARTIFACT_ISSUE_CODES | {
+    "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+}
+
+
 @dataclass
 class QAPipelineResult:
     draft: DocumentDraft
@@ -115,6 +120,7 @@ async def run_qa_pipeline(
                 cover_letter_pages=artifact_result.cover_letter_pages,
                 draft=draft,
                 docs=docs,
+                failure_stage="artifact_validation",
             )
         report = QARunReport(status="disabled", provider=qa_provider)
         report_path = _write_report(output_dir, report)
@@ -151,6 +157,9 @@ async def run_qa_pipeline(
     while True:
         if iterations == 0 or _blocking(pending_issues):
             if iterations >= max_reviews:
+                terminal_issues = list(pending_issues)
+                resume_pages = None
+                cover_letter_pages = None
                 if settings.qa_fail_open and docs is None:
                     _notify_progress(progress_callback, "build_documents")
                     docs = await build_documents(
@@ -160,15 +169,32 @@ async def run_qa_pipeline(
                         output_dir=output_dir,
                         required_resume_hyperlinks=required_work_sample_links,
                     )
+                    resume_max_pages = (
+                        settings.qa_design_resume_max_pages
+                        if job_type == "design"
+                        else settings.qa_resume_max_pages
+                    )
+                    _notify_progress(progress_callback, "artifact_validation")
+                    artifact_result = inspect_artifacts(
+                        docs,
+                        resume_max_pages=resume_max_pages,
+                        required_resume_hyperlinks=required_work_sample_links,
+                    )
+                    terminal_issues.extend(artifact_result.issues)
+                    resume_pages = artifact_result.resume_pages
+                    cover_letter_pages = artifact_result.cover_letter_pages
                 return _finish_or_raise_validation(
                     output_dir=output_dir,
                     provider=qa_provider,
                     iterations=iterations,
-                    issues=pending_issues,
+                    issues=terminal_issues,
                     findings=agent_findings,
                     changes=changes_made,
+                    resume_pages=resume_pages,
+                    cover_letter_pages=cover_letter_pages,
                     draft=draft,
                     docs=docs,
+                    failure_stage="qa_review",
                 )
             try:
                 _notify_progress(progress_callback, "qa_review")
@@ -330,6 +356,7 @@ async def run_qa_pipeline(
                 cover_letter_pages=artifact_result.cover_letter_pages,
                 draft=draft,
                 docs=docs,
+                failure_stage="artifact_validation",
             )
 
 
@@ -366,6 +393,7 @@ def _finish_or_raise_validation(
     cover_letter_pages: int | None = None,
     draft: DocumentDraft,
     docs: dict | None,
+    failure_stage: str,
 ) -> QAPipelineResult:
     draft_path = _write_failed_draft(output_dir, draft)
     report = QARunReport(
@@ -382,7 +410,7 @@ def _finish_or_raise_validation(
     report_path = _write_report(output_dir, report)
     blocking_issues = _blocking(issues)
     has_required_link_failure = any(
-        issue.code in WORK_SAMPLE_ARTIFACT_ISSUE_CODES
+        issue.code in _REQUIRED_WORK_SAMPLE_ISSUE_CODES
         for issue in blocking_issues
     )
     if settings.qa_fail_open and not has_required_link_failure:
@@ -391,7 +419,7 @@ def _finish_or_raise_validation(
     raise QAPipelineValidationError(
         f"QA could not resolve all blocking issues after {iterations} review attempt(s): {codes}",
         report_path,
-        "artifact_validation" if docs is not None else "qa_review",
+        failure_stage,
     )
 
 

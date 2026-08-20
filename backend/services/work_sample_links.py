@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Iterator
 
 
 DESIGN_PORTFOLIO_LABEL = "Design Portfolio (Reel and PDF)"
@@ -22,6 +24,57 @@ class RequiredWorkSampleLinkError(ValueError):
         )
 
 
+@dataclass(frozen=True)
+class MarkdownLink:
+    start: int
+    end: int
+    label: str
+    url: str
+
+
+def iter_markdown_links(text: str) -> Iterator[MarkdownLink]:
+    """Yield HTTP(S) Markdown links while preserving balanced destinations."""
+    position = 0
+    label_pattern = re.compile(r"\[([^\]\r\n]+)\]\(")
+    while position < len(text):
+        label_match = label_pattern.search(text, position)
+        if label_match is None:
+            return
+
+        label_start = label_match.start()
+        label = label_match.group(1)
+        url_start = label_match.end()
+        if not text.startswith(("http://", "https://"), url_start):
+            position = label_start + 1
+            continue
+
+        depth = 0
+        cursor = url_start
+        while cursor < len(text):
+            character = text[cursor]
+            if character.isspace():
+                break
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                if depth == 0:
+                    yield MarkdownLink(
+                        start=label_start,
+                        end=cursor + 1,
+                        label=label,
+                        url=text[url_start:cursor],
+                    )
+                    position = cursor + 1
+                    break
+                depth -= 1
+            cursor += 1
+        else:
+            return
+
+        if cursor >= len(text) or text[cursor].isspace():
+            position = label_start + 1
+
+
 def required_work_sample_links(
     instructions: str,
     job_type: str,
@@ -32,12 +85,13 @@ def required_work_sample_links(
 
     links: dict[str, str] = {}
     invalid: list[str] = []
+    parsed_links = tuple(iter_markdown_links(instructions))
     for label in _REQUIRED_LABELS[normalized_job_type]:
-        pattern = re.compile(
-            rf"\[{re.escape(label)}\]\((https?://[^)\s]+)\)",
-            re.IGNORECASE,
+        urls = list(
+            dict.fromkeys(
+                link.url for link in parsed_links if link.label == label
+            )
         )
-        urls = list(dict.fromkeys(pattern.findall(instructions)))
         if len(urls) != 1:
             invalid.append(label)
             continue

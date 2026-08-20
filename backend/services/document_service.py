@@ -15,6 +15,7 @@ from .document_normalization import (
     RESUME_SECTION_NAMES as _KNOWN_SECTION_NAMES,
     normalize_resume_bullets,
 )
+from .work_sample_links import iter_markdown_links
 
 
 _RESUME_FONT = "Poppins"
@@ -28,9 +29,6 @@ _HEADER_LINK_MARKER = re.compile(
     r"WORK[_ ]SAMPLES?|CASE[_ ]STUDIES)\s*:",
     re.IGNORECASE,
 )
-_MARKDOWN_LINK_PAT = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
-
-
 async def build_documents(
     ai_response: str,
     owner_name: str,
@@ -45,7 +43,11 @@ async def build_documents(
 
     if resume_text:
         docx_path = _resolve_output_path(output_dir / f"{owner_name}_Resume_{position_slug}.docx")
-        docx_path = _build_resume_docx(resume_text, docx_path)
+        docx_path = _build_resume_docx(
+            resume_text,
+            docx_path,
+            required_hyperlinks=required_resume_hyperlinks,
+        )
         result["resume_docx"] = str(docx_path)
         result["resume_pdf"] = _to_pdf(docx_path)
         if result["resume_pdf"]:
@@ -424,24 +426,25 @@ def _add_contact_line(
     size: int | float,
     *,
     font_family: str = _RESUME_FONT,
+    required_hyperlinks: Mapping[str, str] | None = None,
 ) -> None:
     """Render a contact/links line, converting URL-shaped tokens to hyperlinks."""
     position = 0
-    for labeled_match in _MARKDOWN_LINK_PAT.finditer(text):
+    for link in iter_markdown_links(text):
         _add_bare_contact_links(
             paragraph,
-            text[position:labeled_match.start()],
+            text[position:link.start],
             size,
             font_family=font_family,
         )
         _add_hyperlink(
             paragraph,
-            labeled_match.group(1),
-            labeled_match.group(2),
+            link.label,
+            (required_hyperlinks or {}).get(link.label, link.url),
             size,
             font_family=font_family,
         )
-        position = labeled_match.end()
+        position = link.end
     _add_bare_contact_links(
         paragraph,
         text[position:],
@@ -509,7 +512,12 @@ def _next_rendered_kind(lines: list[str], index: int) -> str | None:
     return None
 
 
-def _build_resume_docx(content: str, path: Path) -> Path:
+def _build_resume_docx(
+    content: str,
+    path: Path,
+    *,
+    required_hyperlinks: Mapping[str, str] | None = None,
+) -> Path:
     doc = Document()
     # The development reference uses a compact Poppins layout with narrow
     # margins and 8.5-9 pt body copy so the source-backed sections remain
@@ -563,7 +571,12 @@ def _build_resume_docx(content: str, path: Path) -> Path:
             display = _CONTACT_PREFIX.sub("", value).strip()
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            _add_contact_line(p, display, size=8.5)
+            _add_contact_line(
+                p,
+                display,
+                size=8.5,
+                required_hyperlinks=required_hyperlinks,
+            )
             _set_para_spacing(p, before=0, after=1)
 
         elif kind == "divider":
@@ -1017,7 +1030,7 @@ def _ensure_pdf_hyperlinks(
             for page in document:
                 links = page.get_links()
                 for label, expected_url in required_hyperlinks.items():
-                    for label_rect in page.search_for(label):
+                    for label_rect in _exact_pdf_label_rects(page, label):
                         overlapping = [
                             link
                             for link in links
@@ -1048,6 +1061,14 @@ def _ensure_pdf_hyperlinks(
                 document.saveIncr()
     except Exception:
         return
+
+
+def _exact_pdf_label_rects(page, label: str) -> list:
+    return [
+        rect
+        for rect in page.search_for(label)
+        if page.get_textbox(rect).strip() == label
+    ]
 
 
 def _to_pdf(docx_path: Path) -> Optional[str]:

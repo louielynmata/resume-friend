@@ -18,7 +18,7 @@ from .document_normalization import (
     RESUME_SECTION_NAMES as _RESUME_SECTION_NAMES,
     normalize_resume_bullets,
 )
-from .work_sample_links import format_work_samples_line
+from .work_sample_links import format_work_samples_line, iter_markdown_links
 
 
 _TAG_RE = re.compile(r"<(?P<tag>RESUME|COVER_LETTER|ANALYSIS)>(?P<body>.*?)</(?P=tag)>", re.DOTALL)
@@ -414,7 +414,7 @@ def _validate_structure(
         else None
     )
     if required_work_sample_line and not re.search(
-        rf"(?im)^{re.escape(required_work_sample_line)}\s*$",
+        rf"(?m)^{re.escape(required_work_sample_line)}\s*$",
         resume,
     ):
         add(
@@ -1171,13 +1171,9 @@ def _source_url_candidates(source_materials: str) -> list[str]:
         if _canonical_url(clean) and clean not in candidates:
             candidates.append(clean)
 
-    for match in re.finditer(
-        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
-        source_materials,
-        re.IGNORECASE,
-    ):
-        add(match.group(1))
-        add(match.group(2))
+    for link in iter_markdown_links(source_materials):
+        add(link.label)
+        add(link.url)
 
     for value in _URL_RE.findall(source_materials):
         add(value)
