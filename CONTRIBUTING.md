@@ -85,19 +85,19 @@ Use an imperative, lowercase summary after the colon. Keep commits small and
 coherent. Add a body when the reason or trade-off is not obvious from the
 subject.
 
-| Type | Use it for |
-| --- | --- |
-| `feat` | User-visible behavior |
-| `fix` | Defect corrections |
-| `test` | Tests and test fixtures |
-| `docs` | Documentation-only changes |
+| Type       | Use it for                                      |
+| ---------- | ----------------------------------------------- |
+| `feat`     | User-visible behavior                           |
+| `fix`      | Defect corrections                              |
+| `test`     | Tests and test fixtures                         |
+| `docs`     | Documentation-only changes                      |
 | `refactor` | Internal restructuring without behavior changes |
-| `style` | Formatting-only changes |
-| `perf` | Performance improvements |
-| `build` | Dependencies and build tooling |
-| `ci` | Continuous-integration configuration |
-| `chore` | Repository maintenance |
-| `revert` | Reverting an earlier commit |
+| `style`    | Formatting-only changes                         |
+| `perf`     | Performance improvements                        |
+| `build`    | Dependencies and build tooling                  |
+| `ci`       | Continuous-integration configuration            |
+| `chore`    | Repository maintenance                          |
+| `revert`   | Reverting an earlier commit                     |
 
 To use the repository commit prompt locally, run:
 
@@ -136,6 +136,12 @@ For example:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest tests.test_qa_service -v
+```
+
+For all test:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest
 ```
 
 Replace `tests.test_qa_service` with the relevant test module. A regression
