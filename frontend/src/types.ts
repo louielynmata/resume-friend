@@ -96,3 +96,39 @@ export interface ModelFilesStatus {
   writing_examples: boolean;
   school_transcript: boolean;
 }
+
+export type EditorGroup = "personal" | "prompts";
+export type EditorSource = "personal" | "example" | "prompt";
+
+export interface EditorFileMetadata {
+  group: EditorGroup;
+  file_id: string;
+  filename: string;
+  display_name: string;
+  exists: boolean;
+  source: EditorSource;
+  writable: boolean;
+}
+
+export interface EditorFilesResult {
+  groups: Record<EditorGroup, EditorFileMetadata[]>;
+}
+
+export interface EditorFileResult extends EditorFileMetadata {
+  content: string;
+  revision: string;
+}
+
+export interface EditorSaveResult extends EditorFileResult {
+  personal_file_status: ModelFilesStatus;
+}
+
+export interface LocationListResult {
+  locations: string[];
+}
+
+export interface LocationNormalizeResult extends LocationListResult {
+  raw: string;
+  normalized?: string | null;
+  added: boolean;
+}

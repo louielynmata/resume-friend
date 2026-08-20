@@ -1,10 +1,14 @@
+import { useEffect, useState } from "react";
+
+import { api } from "../api/client";
 import type { GenerationFeedItem, JobMeta } from "../types";
+import { mergeLocations } from "../utils/app-routing";
 
 interface Props {
   meta: JobMeta;
   onChange: (meta: JobMeta) => void;
   onBack: () => void;
-  onGenerate: () => void;
+  onGenerate: (canonicalLocation?: string) => void | Promise<void>;
   generating: boolean;
   extracting: boolean;
   generationFeed: GenerationFeedItem[];
@@ -16,16 +20,18 @@ interface Props {
 
 function Field({
   label,
+  htmlFor,
   required,
   children,
 }: {
   label: string;
+  htmlFor: string;
   required?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1">
+      <label htmlFor={htmlFor} className="block text-sm font-medium text-slate-700 mb-1">
         {label}
         {required && <span className="text-red-500 ml-0.5">*</span>}
       </label>
@@ -64,8 +70,67 @@ export function StepJobMeta({
   generationErrorHint,
   generationElapsedSeconds,
 }: Props) {
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [normalizingLocation, setNormalizingLocation] = useState(false);
+  const [locationMessage, setLocationMessage] = useState("");
+  const [locationError, setLocationError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    api
+      .locations()
+      .then((result) => active && setLocationSuggestions(result.locations))
+      .catch((error: unknown) => {
+        if (active) {
+          setLocationError(
+            error instanceof Error ? error.message : "Could not load saved locations.",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const set = (key: keyof JobMeta) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...meta, [key]: e.target.value });
+
+  async function normalizeLocation(persist: boolean): Promise<string | undefined> {
+    if (!meta.location.trim()) return undefined;
+    setNormalizingLocation(true);
+    setLocationError("");
+    setLocationMessage("");
+    try {
+      const result = await api.normalizeLocation(meta.location, persist);
+      const canonical = result.normalized ?? "";
+      if (canonical !== meta.location) onChange({ ...meta, location: canonical });
+      setLocationSuggestions((current) => mergeLocations(current, result.locations));
+      setLocationMessage(
+        canonical
+          ? persist && result.added
+            ? `${canonical} was normalized and added to saved locations.`
+            : `Using canonical location: ${canonical}.`
+          : "The location was not recognizable and will be omitted.",
+      );
+      return canonical || undefined;
+    } catch (error: unknown) {
+      setLocationError(
+        error instanceof Error ? error.message : "Could not normalize the location.",
+      );
+      throw error;
+    } finally {
+      setNormalizingLocation(false);
+    }
+  }
+
+  async function handleGenerate() {
+    try {
+      const canonical = await normalizeLocation(true);
+      await onGenerate(canonical);
+    } catch {
+      // Catalog errors block generation so the backend invariant cannot be bypassed.
+    }
+  }
 
   const HOURS_PER_YEAR = 2080;
 
@@ -135,8 +200,9 @@ export function StepJobMeta({
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Position" required>
+        <Field label="Position" htmlFor="position" required>
           <input
+            id="position"
             type="text"
             name="position"
             autoComplete="organization-title"
@@ -147,8 +213,9 @@ export function StepJobMeta({
           />
         </Field>
 
-        <Field label="Company" required>
+        <Field label="Company" htmlFor="company" required>
           <input
+            id="company"
             type="text"
             name="company"
             autoComplete="organization"
@@ -159,20 +226,44 @@ export function StepJobMeta({
           />
         </Field>
 
-        <Field label="Location">
+        <Field label="Location" htmlFor="location">
           <input
+            id="location"
             type="text"
             name="location"
             autoComplete="address-level2"
             value={meta.location}
             onChange={set("location")}
+            onBlur={() => void normalizeLocation(false).catch(() => undefined)}
+            list="saved-location-options"
+            aria-describedby="location-guidance location-status"
             placeholder="e.g. Calgary, AB (Hybrid)"
             className={inputClass}
           />
+          <datalist id="saved-location-options">
+            {locationSuggestions.map((location) => (
+              <option key={location.toLocaleLowerCase()} value={location} />
+            ))}
+          </datalist>
+          <p id="location-guidance" className="mt-1 text-xs text-slate-400">
+            Choose a saved value or enter a city. Remote takes precedence when stated.
+          </p>
+          <div id="location-status" aria-live="polite" className="mt-1 min-h-4 text-xs">
+            {normalizingLocation && (
+              <span className="text-indigo-600">Normalizing location…</span>
+            )}
+            {!normalizingLocation && locationError && (
+              <span role="alert" className="text-red-600">{locationError}</span>
+            )}
+            {!normalizingLocation && !locationError && locationMessage && (
+              <span className="text-slate-500">{locationMessage}</span>
+            )}
+          </div>
         </Field>
 
-        <Field label="Date of Job Posting">
+        <Field label="Date of Job Posting" htmlFor="date_job_posted">
           <input
+            id="date_job_posted"
             type="date"
             name="date_job_posted"
             autoComplete="on"
@@ -182,8 +273,9 @@ export function StepJobMeta({
           />
         </Field>
 
-        <Field label="Salary (Annual)">
+        <Field label="Salary (Annual)" htmlFor="salary_annual">
           <input
+            id="salary_annual"
             type="number"
             name="salary_annual"
             autoComplete="on"
@@ -194,8 +286,9 @@ export function StepJobMeta({
           />
         </Field>
 
-        <Field label="Salary (Hourly)">
+        <Field label="Salary (Hourly)" htmlFor="salary_hourly">
           <input
+            id="salary_hourly"
             type="number"
             name="salary_hourly"
             autoComplete="on"
@@ -207,8 +300,9 @@ export function StepJobMeta({
           />
         </Field>
 
-        <Field label="Contact Email (optional)">
+        <Field label="Contact Email (optional)" htmlFor="contact_email">
           <input
+            id="contact_email"
             type="email"
             name="contact_email"
             autoComplete="email"
@@ -229,14 +323,14 @@ export function StepJobMeta({
           ← Back
         </button>
         <button
-          onClick={onGenerate}
-          disabled={!canGenerate || generating}
+          onClick={handleGenerate}
+          disabled={!canGenerate || generating || normalizingLocation}
           className="px-8 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
-          {generating ? (
+          {generating || normalizingLocation ? (
             <>
               <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Generating…
+              {normalizingLocation ? "Checking location…" : "Generating…"}
             </>
           ) : (
             "Generate Resume & Cover Letter"

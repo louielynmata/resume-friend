@@ -12,6 +12,8 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from .location_service import normalize_location
+
 
 # ── Separators & noise ────────────────────────────────────────────────────────
 
@@ -436,5 +438,7 @@ async def extract_job_meta(text: str) -> dict:
         for key, val in ai.items():
             if result.get(key) is None and val is not None:
                 result[key] = val
+
+    result["location"] = normalize_location(result.get("location"))
 
     return result

@@ -11,6 +11,11 @@ from fastapi import APIRouter, HTTPException
 from ..config import settings
 from ..schemas import GenerateRequest, GenerateResponse, GenerationStatusResponse
 from ..services.ai_service import generate_content
+from ..services.location_service import (
+    CATALOG_FILENAME,
+    LocationCatalog,
+    LocationCatalogError,
+)
 from ..services.notion_service import log_application
 from ..services.qa_pipeline import (
     QAPipelineResult,
@@ -19,6 +24,10 @@ from ..services.qa_pipeline import (
     run_qa_pipeline,
 )
 from ..services.qa_service import parse_document_draft
+from ..services.work_sample_links import (
+    RequiredWorkSampleLinkError,
+    required_work_sample_links,
+)
 
 router = APIRouter(prefix="/api/generate", tags=["generate"])
 
@@ -40,6 +49,7 @@ class _GenerationProgress:
 class _LoadedModelFiles:
     resume: str
     instructions: str
+    required_work_sample_links: dict[str, str]
     writing_examples: str
     transcript: str
     system_prompt: str
@@ -273,6 +283,23 @@ async def generate(req: GenerateRequest):
     _prune_generation_progress()
     _record_generation_progress("validate_request")
     try:
+        _validate_generation_request(req)
+        try:
+            req.location = LocationCatalog(
+                settings.model_files_path / CATALOG_FILENAME
+            ).normalize(req.location, persist=True).normalized
+        except LocationCatalogError as exc:
+            raise _http_error(
+                500,
+                stage="validate_request",
+                code="LOCATION_CATALOG_INVALID",
+                message="The local location catalog could not be updated.",
+                detail=str(exc),
+                hint=(
+                    "Repair normalized_locations.json or move it aside so Resume Friend "
+                    "can recreate the Remote seed."
+                ),
+            ) from exc
         return await _run_generation(req, generation_started_at)
     except Exception as exc:
         progress = _generation_progress.get(generation_id)
@@ -314,6 +341,20 @@ def _load_generation_model_files(req: GenerateRequest) -> _LoadedModelFiles:
         )
         resume_content = _read_model(resume_file)
         instructions = _read_model("instructions_prompt.md")
+        try:
+            work_sample_links = required_work_sample_links(instructions, req.job_type)
+        except RequiredWorkSampleLinkError as exc:
+            raise _http_error(
+                422,
+                stage="load_model_files",
+                code="SOURCE_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+                message="Applicant instructions are missing a required work-sample link.",
+                detail=str(exc),
+                hint=(
+                    "Add the exact labeled Markdown link to "
+                    "models_personal/instructions_prompt.md."
+                ),
+            ) from exc
         writing_examples = _read_model("writing_examples.md")
         transcript = _read_model("school_transcript.md")
         system_prompt_template = _read_system_prompt_template()
@@ -380,6 +421,7 @@ def _load_generation_model_files(req: GenerateRequest) -> _LoadedModelFiles:
     return _LoadedModelFiles(
         resume=resume_content,
         instructions=instructions,
+        required_work_sample_links=work_sample_links,
         writing_examples=writing_examples,
         transcript=transcript,
         system_prompt=system_prompt,
@@ -509,6 +551,7 @@ async def _run_review_fix_build_validate_stages(
             position_slug=run_output.position_slug,
             output_dir=run_output.output_dir,
             job_type=req.job_type,
+            required_work_sample_links=model_files.required_work_sample_links,
             progress_callback=_set_generation_stage,
         )
     except QAPipelineValidationError as exc:
@@ -661,7 +704,6 @@ async def _run_generation(
     req: GenerateRequest,
     generation_started_at: float,
 ) -> GenerateResponse:
-    _validate_generation_request(req)
     model_files = _load_generation_model_files(req)
     salary_annual, salary_hourly = _resolve_compensation(req)
     user_prompt = _build_user_prompt(req)

@@ -3,6 +3,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import pymupdf
+from docx import Document
+
 from backend.config import settings
 from backend.qa_models import (
     ArtifactQAResult,
@@ -15,8 +18,56 @@ from backend.services.qa_pipeline import (
     QAPipelineValidationError,
     run_qa_pipeline,
 )
+from backend.services.document_service import _build_resume_docx
+from backend.services.work_sample_links import CASE_STUDIES_LABEL
 
 from tests.test_qa_service import SOURCE_RESUME, valid_draft
+
+
+CASE_STUDIES_LINKS = {
+    CASE_STUDIES_LABEL: "https://figma.example/case-studies"
+}
+CASE_STUDIES_INSTRUCTIONS = (
+    "WORK_SAMPLES: [Case Studies and Product Work]"
+    "(https://figma.example/case-studies)"
+)
+
+
+def write_required_resume_docx(path: Path) -> None:
+    _build_resume_docx(
+        "NAME: Alex Example\n"
+        "ROLE: Software Engineer\n"
+        "CONTACT: alex@example.com\n"
+        "LINKS: alex.example\n"
+        f"WORK_SAMPLES: [{CASE_STUDIES_LABEL}]"
+        f"({CASE_STUDIES_LINKS[CASE_STUDIES_LABEL]})\n\n"
+        "PROFESSIONAL SUMMARY\n"
+        "This artifact contains enough readable text for validation.",
+        path,
+    )
+
+
+def write_cover_docx(path: Path) -> None:
+    document = Document()
+    document.add_paragraph(
+        "This cover letter contains enough readable text for artifact validation."
+    )
+    document.save(path)
+
+
+def write_required_resume_pdf(path: Path) -> None:
+    with pymupdf.open() as document:
+        page = document.new_page()
+        page.insert_text((72, 48), "Resume artifact validation text")
+        page.insert_text((72, 84), CASE_STUDIES_LABEL)
+        page.insert_link(
+            {
+                "kind": pymupdf.LINK_URI,
+                "from": page.search_for(CASE_STUDIES_LABEL)[0],
+                "uri": CASE_STUDIES_LINKS[CASE_STUDIES_LABEL],
+            }
+        )
+        document.save(path)
 
 
 class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
@@ -37,6 +88,25 @@ class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         for key, value in self.original_values.items():
             setattr(settings, key, value)
+
+    async def _run_work_sample_case(self, root: Path):
+        return await run_qa_pipeline(
+            selected_provider="ollama",
+            draft=valid_draft(),
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            instructions=CASE_STUDIES_INSTRUCTIONS,
+            writing_examples="I write concise letters.",
+            transcript="Education facts.",
+            job_description="Software role.",
+            company_context="",
+            position="Software Engineer",
+            company="Example Company",
+            position_slug="SoftwareEngineer",
+            output_dir=root,
+            job_type="development",
+            required_work_sample_links=CASE_STUDIES_LINKS,
+        )
 
     async def test_pipeline_reviews_builds_and_writes_report(self):
         corrected = valid_draft()
@@ -73,6 +143,7 @@ class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
                 company="Example Company",
                 position_slug="ProductDesigner",
                 output_dir=Path(tmp),
+                required_work_sample_links={},
                 progress_callback=progress_events.append,
             )
 
@@ -122,6 +193,7 @@ class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
                 company="Example Company",
                 position_slug="ProductDesigner",
                 output_dir=Path(tmp),
+                required_work_sample_links={},
             )
 
             self.assertEqual(result.report.status, "needs_review")
@@ -132,6 +204,90 @@ class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
                 "<RESUME>",
                 Path(result.report.draft_path).read_text(encoding="utf-8"),
             )
+
+    async def test_fail_open_hard_fails_required_semantic_link_mismatch(self):
+        settings.qa_fail_open = True
+        settings.qa_max_repairs = 0
+        semantic_failure = QAIssue(
+            code="RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            category="structure",
+            severity=QASeverity.ERROR,
+            document="resume",
+            message="The required work-sample link differs from the source.",
+        )
+        reviewer_result = QAAgentResult(
+            resume=valid_draft().resume,
+            cover_letter=valid_draft().cover_letter,
+            analysis=valid_draft().analysis,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "backend.services.qa_pipeline.validate_draft",
+            return_value=[semantic_failure],
+        ), patch(
+            "backend.services.qa_pipeline.review_and_fix_draft",
+            new=AsyncMock(return_value=reviewer_result),
+        ), patch(
+            "backend.services.qa_pipeline.build_documents",
+            new=AsyncMock(return_value={"resume_docx": "resume.docx"}),
+        ), patch(
+            "backend.services.qa_pipeline.inspect_artifacts",
+            return_value=ArtifactQAResult(resume_pages=2, cover_letter_pages=1),
+        ) as inspector:
+            with self.assertRaises(QAPipelineValidationError) as raised:
+                await self._run_work_sample_case(Path(tmp))
+
+            self.assertEqual(raised.exception.stage, "qa_review")
+            inspector.assert_called_once()
+            self.assertTrue((Path(tmp) / "qa_report.json").exists())
+            self.assertTrue((Path(tmp) / "qa_draft.xml").exists())
+            report = (Path(tmp) / "qa_report.json").read_text(encoding="utf-8")
+            self.assertIn("RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH", report)
+
+    async def test_fail_open_inspects_and_merges_required_artifact_failure(self):
+        settings.qa_fail_open = True
+        settings.qa_max_repairs = 0
+        semantic_failure = QAIssue(
+            code="RESUME_FIRST_PERSON",
+            category="formatting",
+            severity=QASeverity.ERROR,
+            document="resume",
+            message="The resume uses first-person prose.",
+        )
+        artifact_failure = QAIssue(
+            code="PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+            category="artifact",
+            severity=QASeverity.ERROR,
+            document="resume",
+            message="The required work-sample link cannot be inspected.",
+        )
+        reviewer_result = QAAgentResult(
+            resume=valid_draft().resume,
+            cover_letter=valid_draft().cover_letter,
+            analysis=valid_draft().analysis,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "backend.services.qa_pipeline.validate_draft",
+            return_value=[semantic_failure],
+        ), patch(
+            "backend.services.qa_pipeline.review_and_fix_draft",
+            new=AsyncMock(return_value=reviewer_result),
+        ), patch(
+            "backend.services.qa_pipeline.build_documents",
+            new=AsyncMock(return_value={"resume_docx": "resume.docx"}),
+        ), patch(
+            "backend.services.qa_pipeline.inspect_artifacts",
+            return_value=ArtifactQAResult(issues=[artifact_failure]),
+        ) as inspector:
+            with self.assertRaises(QAPipelineValidationError) as raised:
+                await self._run_work_sample_case(Path(tmp))
+
+            self.assertEqual(raised.exception.stage, "qa_review")
+            inspector.assert_called_once()
+            report = (Path(tmp) / "qa_report.json").read_text(encoding="utf-8")
+            self.assertIn("RESUME_FIRST_PERSON", report)
+            self.assertIn("PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING", report)
 
     async def test_pipeline_restores_identity_after_every_model_pass(self):
         draft = valid_draft()
@@ -166,6 +322,7 @@ class QAPipelineTests(unittest.IsolatedAsyncioTestCase):
                 company="Example Company",
                 position_slug="ProductDesigner",
                 output_dir=Path(tmp),
+                required_work_sample_links={},
             )
 
             self.assertEqual(result.report.status, "passed")
@@ -244,6 +401,7 @@ CREATIVE LEAD & MULTIMEDIA ARTIST - N/A
                 position_slug="MultimediaDesigner",
                 output_dir=Path(tmp),
                 job_type="design",
+                required_work_sample_links={},
             )
 
             self.assertEqual(result.report.status, "passed")
@@ -291,6 +449,7 @@ CREATIVE LEAD & MULTIMEDIA ARTIST - N/A
                     company="Example Company",
                     position_slug="ProductDesigner",
                     output_dir=Path(tmp),
+                    required_work_sample_links={},
                 )
 
             self.assertEqual(raised.exception.stage, "qa_review")
@@ -330,6 +489,7 @@ CREATIVE LEAD & MULTIMEDIA ARTIST - N/A
                 company="Example Company",
                 position_slug="ProductDesigner",
                 output_dir=Path(tmp),
+                required_work_sample_links={},
             )
 
             self.assertIn("● Built", result.draft.resume)
@@ -393,6 +553,7 @@ CREATIVE LEAD & MULTIMEDIA ARTIST - N/A
                     company="Example Company",
                     position_slug="ProductDesigner",
                     output_dir=Path(tmp),
+                    required_work_sample_links={},
                 )
 
             self.assertEqual(raised.exception.stage, "qa_review")
@@ -449,6 +610,7 @@ CREATIVE LEAD & MULTIMEDIA ARTIST - N/A
                     company="Example Company",
                     position_slug="ProductDesigner",
                     output_dir=Path(tmp),
+                    required_work_sample_links={},
                 )
 
             self.assertEqual(raised.exception.stage, "artifact_validation")
@@ -496,6 +658,7 @@ CREATIVE LEAD & MULTIMEDIA ARTIST - N/A
                 company="Example Company",
                 position_slug="ProductDesigner",
                 output_dir=Path(tmp),
+                required_work_sample_links={},
             )
 
             self.assertEqual(result.report.status, "passed_with_warnings")
@@ -548,6 +711,7 @@ CREATIVE LEAD & MULTIMEDIA ARTIST - N/A
                     company="Example Company",
                     position_slug="ProductDesigner",
                     output_dir=Path(tmp),
+                    required_work_sample_links={},
                 )
 
             report = Path(raised.exception.report_path).read_text(encoding="utf-8")
@@ -589,11 +753,178 @@ CREATIVE LEAD & MULTIMEDIA ARTIST - N/A
                     company="Example Company",
                     position_slug="ProductDesigner",
                     output_dir=Path(tmp),
+                    required_work_sample_links={},
                 )
 
             report = Path(raised.exception.report_path).read_text(encoding="utf-8")
             self.assertEqual(reviewer.await_count, 5)
             self.assertIn('"iterations": 5', report)
+
+    async def test_pipeline_passes_one_trusted_mapping_to_every_stage(self):
+        draft = valid_draft()
+        reviewer_result = QAAgentResult(
+            resume=draft.resume,
+            cover_letter=draft.cover_letter,
+            analysis=draft.analysis,
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "backend.services.qa_pipeline.review_and_fix_draft",
+            new=AsyncMock(return_value=reviewer_result),
+        ), patch(
+            "backend.services.qa_pipeline.build_documents",
+            new=AsyncMock(return_value={"resume_docx": "resume.docx"}),
+        ) as builder, patch(
+            "backend.services.qa_pipeline.inspect_artifacts",
+            return_value=ArtifactQAResult(resume_pages=2, cover_letter_pages=1),
+        ) as inspector:
+            result = await run_qa_pipeline(
+                selected_provider="ollama",
+                draft=draft,
+                owner_name="Alex Example",
+                source_resume=SOURCE_RESUME,
+                instructions=CASE_STUDIES_INSTRUCTIONS,
+                writing_examples="I write concise letters.",
+                transcript="Education facts.",
+                job_description="Software role.",
+                company_context="",
+                position="Software Engineer",
+                company="Example Company",
+                position_slug="SoftwareEngineer",
+                output_dir=Path(tmp),
+                job_type="development",
+                required_work_sample_links=CASE_STUDIES_LINKS,
+            )
+
+        self.assertIn("WORK_SAMPLES:", result.draft.resume)
+        self.assertEqual(
+            builder.await_args.kwargs["required_resume_hyperlinks"],
+            CASE_STUDIES_LINKS,
+        )
+        self.assertEqual(
+            inspector.call_args.kwargs["required_resume_hyperlinks"],
+            CASE_STUDIES_LINKS,
+        )
+
+    async def test_required_link_artifact_failure_blocks_when_ai_qa_disabled(self):
+        draft = valid_draft()
+        settings.qa_enabled = False
+        settings.qa_fail_open = True
+        artifact_failure = ArtifactQAResult(
+            issues=[
+                QAIssue(
+                    code="PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING",
+                    category="artifact",
+                    severity=QASeverity.ERROR,
+                    document="resume",
+                    message="Required label is not clickable.",
+                )
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "backend.services.qa_pipeline.build_documents",
+            new=AsyncMock(return_value={"resume_docx": "resume.docx"}),
+        ), patch(
+            "backend.services.qa_pipeline.inspect_artifacts",
+            return_value=artifact_failure,
+        ):
+            with self.assertRaises(QAPipelineValidationError) as raised:
+                await run_qa_pipeline(
+                    selected_provider="ollama",
+                    draft=draft,
+                    owner_name="Alex Example",
+                    source_resume=SOURCE_RESUME,
+                    instructions=CASE_STUDIES_INSTRUCTIONS,
+                    writing_examples="I write concise letters.",
+                    transcript="Education facts.",
+                    job_description="Software role.",
+                    company_context="",
+                    position="Software Engineer",
+                    company="Example Company",
+                    position_slug="SoftwareEngineer",
+                    output_dir=Path(tmp),
+                    job_type="development",
+                    required_work_sample_links=CASE_STUDIES_LINKS,
+                )
+
+            self.assertEqual(raised.exception.stage, "artifact_validation")
+            report = Path(raised.exception.report_path).read_text(encoding="utf-8")
+            self.assertIn("PDF_REQUIRED_WORK_SAMPLE_LINK_MISSING", report)
+            self.assertTrue((Path(tmp) / "qa_draft.xml").exists())
+
+    async def test_disabled_qa_blocks_unreadable_required_resume_docx(self):
+        settings.qa_enabled = False
+        settings.qa_fail_open = True
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resume_docx = root / "resume.docx"
+            cover_docx = root / "cover.docx"
+            resume_docx.write_bytes(b"not a Word package")
+            write_cover_docx(cover_docx)
+            docs = {
+                "resume_docx": str(resume_docx),
+                "cover_letter_docx": str(cover_docx),
+            }
+
+            with patch(
+                "backend.services.qa_pipeline.build_documents",
+                new=AsyncMock(return_value=docs),
+            ):
+                with self.assertRaises(QAPipelineValidationError) as raised:
+                    await self._run_work_sample_case(root)
+
+            self.assertEqual(raised.exception.stage, "artifact_validation")
+
+    async def test_disabled_qa_blocks_unreadable_existing_resume_pdf(self):
+        settings.qa_enabled = False
+        settings.qa_fail_open = True
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resume_docx = root / "resume.docx"
+            cover_docx = root / "cover.docx"
+            resume_pdf = root / "resume.pdf"
+            write_required_resume_docx(resume_docx)
+            write_cover_docx(cover_docx)
+            resume_pdf.write_bytes(b"not a PDF")
+            docs = {
+                "resume_docx": str(resume_docx),
+                "cover_letter_docx": str(cover_docx),
+                "resume_pdf": str(resume_pdf),
+            }
+
+            with patch(
+                "backend.services.qa_pipeline.build_documents",
+                new=AsyncMock(return_value=docs),
+            ):
+                with self.assertRaises(QAPipelineValidationError) as raised:
+                    await self._run_work_sample_case(root)
+
+            self.assertEqual(raised.exception.stage, "artifact_validation")
+
+    async def test_disabled_qa_blocks_unavailable_required_pdf_inspector(self):
+        settings.qa_enabled = False
+        settings.qa_fail_open = True
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resume_docx = root / "resume.docx"
+            cover_docx = root / "cover.docx"
+            resume_pdf = root / "resume.pdf"
+            write_required_resume_docx(resume_docx)
+            write_cover_docx(cover_docx)
+            write_required_resume_pdf(resume_pdf)
+            docs = {
+                "resume_docx": str(resume_docx),
+                "cover_letter_docx": str(cover_docx),
+                "resume_pdf": str(resume_pdf),
+            }
+
+            with patch(
+                "backend.services.qa_pipeline.build_documents",
+                new=AsyncMock(return_value=docs),
+            ), patch.dict("sys.modules", {"pymupdf": None}):
+                with self.assertRaises(QAPipelineValidationError) as raised:
+                    await self._run_work_sample_case(root)
+
+            self.assertEqual(raised.exception.stage, "artifact_validation")
 
 
 if __name__ == "__main__":

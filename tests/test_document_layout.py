@@ -4,6 +4,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.oxml.ns import qn
 
 from backend.services.document_service import (
     _build_cover_letter_docx,
@@ -235,6 +236,50 @@ SALESPERSON - 2024 - Present
             self.assertEqual(position.runs[0].text, "SOFTWARE ENGINEER")
             self.assertTrue(position.runs[0].bold)
 
+    def test_resume_renders_notable_clients_as_entry_subheading(self):
+        content = """NAME: Alex Example
+ROLE: Creative Director
+CONTACT: alex@example.com
+
+WORK EXPERIENCE
+COMPANY: Example Creative Agency | 360 Entertainment & Advertising Agency
+CREATIVE DIRECTOR - April 2021 - Oct 2024, Full-time; Oct 2024 - 2026, Present Freelance
+SENIOR ART DIRECTOR - April 2017 - April 2018, Full-time; 2019 - 2020, Freelance
+● Directed integrated campaigns.
+● Mentored multidisciplinary design teams.
+
+SUBHEADING: Notable Clients
+● Example Beverage Group - regional portfolio
+● Example Retail Group - seasonal campaigns
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(content, path)
+            document = Document(path)
+
+            company = paragraph_starting_with(document, "Example Creative Agency")
+            creative_director = paragraph_starting_with(document, "CREATIVE DIRECTOR")
+            senior_art_director = paragraph_starting_with(document, "SENIOR ART DIRECTOR")
+            last_achievement = paragraph_starting_with(
+                document,
+                "Mentored multidisciplinary design teams.",
+            )
+            subheading = paragraph_starting_with(document, "Notable Clients")
+            first_client = paragraph_starting_with(document, "Example Beverage Group")
+
+            self.assertEqual(company.runs[0].text, "Example Creative Agency")
+            self.assertTrue(company.runs[0].bold)
+            self.assertFalse(company.runs[1].bold)
+            self.assertTrue(creative_director.runs[0].bold)
+            self.assertFalse(creative_director.runs[1].bold)
+            self.assertTrue(senior_art_director.runs[0].bold)
+            self.assertFalse(senior_art_director.runs[1].bold)
+            self.assertFalse(last_achievement.paragraph_format.keep_with_next)
+            self.assertEqual(subheading.text, "Notable Clients")
+            self.assertTrue(all(run.bold for run in subheading.runs))
+            self.assertTrue(subheading.paragraph_format.keep_with_next)
+            self.assertEqual(first_client.style.name, "List Bullet")
+
     def test_resume_matches_reference_project_hierarchy_and_pagination(self):
         content = """NAME: Alex Example
 ROLE: Software Developer
@@ -417,6 +462,25 @@ Designer focused on accessible digital experiences.
             self.assertEqual(work_samples.alignment, 1)
             self.assertIn(portfolio_url, hyperlink_targets)
             self.assertIn(case_studies_url, hyperlink_targets)
+
+            rendered_targets = {}
+            for hyperlink in document.element.body.iter(qn("w:hyperlink")):
+                label = "".join(
+                    node.text or "" for node in hyperlink.iter(qn("w:t"))
+                )
+                relationship_id = hyperlink.get(qn("r:id"))
+                rendered_targets[label] = document.part.rels[
+                    relationship_id
+                ].target_ref
+
+            self.assertEqual(
+                rendered_targets["Design Portfolio (Reel and PDF)"],
+                portfolio_url,
+            )
+            self.assertEqual(
+                rendered_targets["Case Studies and Product Work"],
+                case_studies_url,
+            )
 
 
 if __name__ == "__main__":

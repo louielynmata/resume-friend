@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from ..config import settings
@@ -17,6 +18,7 @@ from .document_normalization import (
     RESUME_SECTION_NAMES as _RESUME_SECTION_NAMES,
     normalize_resume_bullets,
 )
+from .work_sample_links import format_work_samples_line, iter_markdown_links
 
 
 _TAG_RE = re.compile(r"<(?P<tag>RESUME|COVER_LETTER|ANALYSIS)>(?P<body>.*?)</(?P=tag)>", re.DOTALL)
@@ -74,6 +76,17 @@ _CANONICAL_TRACK_SECTIONS = {
 }
 
 
+@dataclass(frozen=True)
+class _DesignReferenceEntry:
+    company: str
+    context: str
+    role_titles: tuple[str, ...]
+    role_lines: tuple[str, ...]
+    bullets: tuple[str, ...]
+    notable_label: str
+    notable_bullets: tuple[str, ...]
+
+
 def parse_document_draft(ai_response: str) -> DocumentDraft:
     sections = {
         match.group("tag"): match.group("body").strip()
@@ -110,6 +123,7 @@ def apply_safe_deterministic_fixes(
     source_resume: str = "",
     source_materials: str = "",
     job_type: str = "",
+    required_work_sample_links: Mapping[str, str] | None = None,
 ) -> tuple[DocumentDraft, list[str]]:
     """Restore trusted mechanical invariants without asking an AI to infer them."""
     fixed = draft.model_copy(deep=True)
@@ -188,17 +202,36 @@ def apply_safe_deterministic_fixes(
                 "Related Work Experiences, and Other Experiences."
             )
 
+        if job_type.strip().lower() == "design":
+            fixed.resume, design_entries_changed = (
+                _restore_design_reference_entries(
+                    fixed.resume,
+                    source_resume,
+                )
+            )
+            if design_entries_changed:
+                changes.append(
+                    "Restored fixed design entry structure and Notable Clients; "
+                    "kept additions to source-supported bullet lines only."
+                )
+
     trusted_materials = source_materials or source_resume
     if trusted_materials.strip():
         fixed.resume, header_changed = _restore_required_resume_header(
             fixed.resume,
             trusted_materials,
             job_type=job_type,
+            required_work_sample_links=required_work_sample_links,
         )
         if header_changed:
-            changes.append(
-                "Restored the track-specific resume header links from the applicant instructions."
-            )
+            if required_work_sample_links:
+                changes.append(
+                    "Restored the track-required work-sample links from applicant instructions."
+                )
+            else:
+                changes.append(
+                    "Restored the track-specific resume header links from the applicant instructions."
+                )
 
         fixed.resume, resume_urls_changed = _restore_source_supported_urls(
             fixed.resume,
@@ -280,6 +313,7 @@ def validate_draft(
     source_resume: str,
     source_materials: str,
     job_type: str = "",
+    required_work_sample_links: Mapping[str, str] | None = None,
 ) -> list[QAIssue]:
     issues: list[QAIssue] = []
 
@@ -310,6 +344,7 @@ def validate_draft(
         owner_name=owner_name,
         source_materials=source_materials,
         job_type=job_type,
+        required_work_sample_links=required_work_sample_links,
         add=add,
     )
     source_requirements = _validate_truthfulness(
@@ -318,6 +353,12 @@ def validate_draft(
         add=add,
     )
     _validate_track_section_contract(
+        resume=resume,
+        source_resume=source_resume,
+        job_type=job_type,
+        add=add,
+    )
+    _validate_design_reference_entries(
         resume=resume,
         source_resume=source_resume,
         job_type=job_type,
@@ -348,6 +389,7 @@ def _validate_structure(
     owner_name: str,
     source_materials: str,
     job_type: str,
+    required_work_sample_links: Mapping[str, str] | None = None,
     add: _AddIssue,
 ) -> None:
 
@@ -364,10 +406,28 @@ def _validate_structure(
     required_header_lines = _required_resume_header_lines(
         source_materials,
         job_type=job_type,
+        required_work_sample_links=required_work_sample_links,
     )
+    required_work_sample_line = (
+        format_work_samples_line(required_work_sample_links)
+        if required_work_sample_links
+        else None
+    )
+    if required_work_sample_line and not re.search(
+        rf"(?m)^{re.escape(required_work_sample_line)}\s*$",
+        resume,
+    ):
+        add(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            "structure",
+            QASeverity.ERROR,
+            "resume",
+            "The resume must preserve the required labeled work-sample links exactly.",
+        )
     missing_header_lines = [
         line
         for line in required_header_lines
+        if line != required_work_sample_line
         if not re.search(rf"(?im)^{re.escape(line)}\s*$", resume)
     ]
     if missing_header_lines:
@@ -779,7 +839,12 @@ def _extract_required_block(text: str, start: str, end: str) -> list[str]:
     return [line.strip() for line in match.group(1).splitlines() if line.strip()]
 
 
-def _required_resume_header_lines(text: str, *, job_type: str) -> list[str]:
+def _required_resume_header_lines(
+    text: str,
+    *,
+    job_type: str,
+    required_work_sample_links: Mapping[str, str] | None = None,
+) -> list[str]:
     required = _extract_required_block(
         text,
         "RESUME HEADER - REQUIRED EXACT VALUES:",
@@ -794,6 +859,13 @@ def _required_resume_header_lines(text: str, *, job_type: str) -> list[str]:
                 f"END {normalized_job_type} RESUME HEADER",
             )
         )
+    if required_work_sample_links:
+        required = [
+            line
+            for line in required
+            if _header_marker_name(line) not in {"WORK_SAMPLES", "WORK SAMPLES"}
+        ]
+        required.append(format_work_samples_line(required_work_sample_links))
     return list(dict.fromkeys(required))
 
 
@@ -813,10 +885,12 @@ def _restore_required_resume_header(
     source_materials: str,
     *,
     job_type: str,
+    required_work_sample_links: Mapping[str, str] | None = None,
 ) -> tuple[str, bool]:
     required = _required_resume_header_lines(
         source_materials,
         job_type=job_type,
+        required_work_sample_links=required_work_sample_links,
     )
     if not required:
         return text.strip(), False
@@ -830,10 +904,15 @@ def _restore_required_resume_header(
         ),
         len(lines),
     )
+    required_markers = {
+        marker
+        for line in required
+        if (marker := _header_marker_name(line)) is not None
+    }
     header = [
         line
         for line in lines[:first_section]
-        if _header_marker_name(line) is None
+        if _header_marker_name(line) not in required_markers
     ]
     body = lines[first_section:]
 
@@ -1092,13 +1171,9 @@ def _source_url_candidates(source_materials: str) -> list[str]:
         if _canonical_url(clean) and clean not in candidates:
             candidates.append(clean)
 
-    for match in re.finditer(
-        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
-        source_materials,
-        re.IGNORECASE,
-    ):
-        add(match.group(1))
-        add(match.group(2))
+    for link in iter_markdown_links(source_materials):
+        add(link.label)
+        add(link.url)
 
     for value in _URL_RE.findall(source_materials):
         add(value)
@@ -1192,6 +1267,428 @@ def _markdown_section_entries(
     if current_heading:
         entries.append((current_heading, current_lines))
     return entries
+
+
+def _source_design_reference_entries(
+    source_resume: str,
+) -> list[_DesignReferenceEntry]:
+    entries: list[_DesignReferenceEntry] = []
+    work_entries = _markdown_section_entries(
+        source_resume,
+        {
+            "Work Experience",
+            "Work Experiences",
+            "Related Work Experience",
+            "Related Work Experiences",
+            "Other Experience",
+            "Other Experiences",
+            "Creative Experience",
+        },
+    )
+
+    for heading, raw_lines in work_entries:
+        role_titles = tuple(
+            role
+            for role in re.split(r"\s*/\s*", _plain_text(heading))
+            if role
+        )
+        company = ""
+        context = ""
+        generic_dates = ""
+        role_dates: dict[str, str] = {}
+        bullets: list[str] = []
+        notable_label = ""
+        notable_bullets: list[str] = []
+        in_notable_clients = False
+
+        for raw_line in raw_lines:
+            line = raw_line.strip()
+            if not line or line == "---":
+                continue
+
+            subheading = re.match(r"^#{4,6}\s+(.+?)\s*$", line)
+            if subheading is not None:
+                candidate = _plain_text(subheading.group(1))
+                in_notable_clients = _normalized_match_text(candidate) in {
+                    "notable clients",
+                    "notable clients and works",
+                }
+                if in_notable_clients:
+                    notable_label = candidate
+                continue
+
+            bullet = re.match(
+                r"^\s*(?:[-+*]|\u25cf|\u2022)\s+(.+?)\s*$",
+                line,
+            )
+            if bullet is not None:
+                target = notable_bullets if in_notable_clients else bullets
+                value = _reference_safe_text(bullet.group(1))
+                if not in_notable_clients:
+                    value = _resume_voice_reference_bullet(value)
+                target.append(value)
+                continue
+
+            plain_line = _plain_text(line)
+            explicit = re.match(r"^(.+?):\s*(.+)$", plain_line)
+            if explicit is not None and _line_has_resume_date(explicit.group(2)):
+                matching_role = next(
+                    (
+                        role
+                        for role in role_titles
+                        if _normalized_match_text(role)
+                        == _normalized_match_text(explicit.group(1))
+                    ),
+                    None,
+                )
+                if matching_role is not None:
+                    role_dates[matching_role] = _canonical_source_dates(
+                        explicit.group(2)
+                    )
+                    continue
+
+            bold = re.match(r"^\*\*(.+?)\*\*\s*$", line)
+            if bold is not None and not company:
+                company = _reference_safe_text(_plain_text(bold.group(1))).rstrip(":")
+                continue
+
+            if _line_has_resume_date(plain_line) and not generic_dates:
+                generic_dates = _canonical_source_dates(plain_line)
+                continue
+
+            if company and not context and not in_notable_clients:
+                context = _reference_safe_text(plain_line)
+
+        if not company or not role_titles or not notable_label:
+            continue
+
+        rendered_roles = tuple(
+            role.upper()
+            + (
+                f" - {dates}"
+                if (dates := role_dates.get(role, generic_dates))
+                else ""
+            )
+            for role in role_titles
+        )
+        entries.append(
+            _DesignReferenceEntry(
+                company=company,
+                context=context,
+                role_titles=role_titles,
+                role_lines=rendered_roles,
+                bullets=tuple(bullets),
+                notable_label=notable_label,
+                notable_bullets=tuple(notable_bullets),
+            )
+        )
+
+    return entries
+
+
+def _design_company_line(entry: _DesignReferenceEntry) -> str:
+    context = f" | {entry.context}" if entry.context else ""
+    return f"COMPANY: {entry.company}{context}"
+
+
+def _design_entry_lines(
+    entry: _DesignReferenceEntry,
+    extra_bullets: list[str],
+) -> list[str]:
+    lines = [
+        _design_company_line(entry),
+        *entry.role_lines,
+        *(f"\u25cf {bullet}" for bullet in entry.bullets),
+        *(f"\u25cf {bullet}" for bullet in extra_bullets),
+        "",
+        f"SUBHEADING: {entry.notable_label}",
+        *(f"\u25cf {bullet}" for bullet in entry.notable_bullets),
+    ]
+    return lines
+
+
+def _line_matches_design_company(line: str, company: str) -> bool:
+    clean = re.sub(
+        r"(?i)^\s*COMPANY\s*:\s*",
+        "",
+        _plain_text(line),
+    )
+    candidate = clean.split("|", 1)[0].rstrip(" ,:")
+    return _normalized_match_text(candidate) == _normalized_match_text(company)
+
+
+def _line_matches_design_role(line: str, roles: tuple[str, ...]) -> bool:
+    candidate = _resume_role_line_title(line)
+    if candidate is None:
+        return False
+    normalized_roles = {_normalized_match_text(role) for role in roles}
+    return _normalized_match_text(candidate) in normalized_roles
+
+
+_DESIGN_BULLET_MATCH_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "being",
+        "by",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "their",
+        "these",
+        "this",
+        "to",
+        "was",
+        "were",
+        "with",
+    }
+)
+
+
+def _design_bullet_content_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in _normalized_match_text(text).split()
+        if token not in _DESIGN_BULLET_MATCH_STOPWORDS
+    }
+
+
+def _design_bullet_numbers(text: str) -> set[str]:
+    return {
+        token.casefold().removesuffix("+")
+        for token in re.findall(
+            r"(?i)(?<!\w)\d+(?:[.,]\d+)?(?:[kmb])?%?\+?(?!\w)",
+            text,
+        )
+    }
+
+
+def _design_bullets_are_redundant(candidate: str, reference: str) -> bool:
+    if _normalized_match_text(candidate) == _normalized_match_text(reference):
+        return True
+
+    candidate_numbers = _design_bullet_numbers(candidate)
+    reference_numbers = _design_bullet_numbers(reference)
+    if candidate_numbers != reference_numbers:
+        return False
+
+    candidate_tokens = _design_bullet_content_tokens(candidate)
+    reference_tokens = _design_bullet_content_tokens(reference)
+    if not candidate_tokens or not reference_tokens:
+        return False
+
+    overlap = len(candidate_tokens & reference_tokens)
+    return (
+        overlap >= 6
+        and overlap / len(candidate_tokens) >= 0.6
+        and overlap / len(reference_tokens) >= 0.6
+    )
+
+
+def _design_entry_extra_bullets(
+    lines: list[str],
+    entry: _DesignReferenceEntry,
+) -> list[str]:
+    source_bullets = (*entry.bullets, *entry.notable_bullets)
+    extras: list[str] = []
+    in_notable_clients = False
+    notable_normalized = _normalized_match_text(entry.notable_label)
+
+    for line in lines:
+        clean = _plain_text(line)
+        if (
+            _resume_section_name(line) == "NOTABLE CLIENTS"
+            or (
+                re.match(r"(?i)^\s*SUBHEADING\s*:", clean)
+                and notable_normalized in _normalized_match_text(clean)
+            )
+        ):
+            in_notable_clients = True
+            continue
+        if in_notable_clients:
+            continue
+        bullet = re.match(r"^\s*(?:[-+*]|\u25cf|\u2022)\s+(.+?)\s*$", line)
+        if bullet is None:
+            continue
+        value = _resume_voice_reference_bullet(bullet.group(1))
+        if not _normalized_match_text(value):
+            continue
+        if any(
+            _design_bullets_are_redundant(value, source_bullet)
+            for source_bullet in source_bullets
+        ):
+            continue
+        if any(
+            _design_bullets_are_redundant(value, existing)
+            for existing in extras
+        ):
+            continue
+        extras.append(value)
+    return extras
+
+
+def _design_entry_span(
+    lines: list[str],
+    entry: _DesignReferenceEntry,
+    *,
+    all_companies: tuple[str, ...],
+    all_roles: tuple[str, ...],
+) -> tuple[int, int] | None:
+    anchors = [
+        index
+        for index, line in enumerate(lines)
+        if _line_matches_design_company(line, entry.company)
+        or _line_matches_design_role(line, entry.role_titles)
+    ]
+    if not anchors:
+        return None
+
+    start = min(anchors)
+    last_anchor = max(anchors)
+    other_companies = tuple(
+        company
+        for company in all_companies
+        if _normalized_match_text(company) != _normalized_match_text(entry.company)
+    )
+    entry_role_names = {
+        _normalized_match_text(role) for role in entry.role_titles
+    }
+    other_roles = tuple(
+        role
+        for role in all_roles
+        if _normalized_match_text(role) not in entry_role_names
+    )
+
+    end = len(lines)
+    for index in range(last_anchor + 1, len(lines)):
+        section = _resume_section_name(lines[index])
+        if section is not None and section != "NOTABLE CLIENTS":
+            end = index
+            break
+        if any(
+            _line_matches_design_company(lines[index], company)
+            for company in other_companies
+        ) or _line_matches_design_role(lines[index], other_roles):
+            end = index
+            break
+    return start, end
+
+
+def _design_entry_insertion_index(lines: list[str]) -> int:
+    work_sections = {
+        "WORK EXPERIENCE",
+        "RELATED WORK EXPERIENCES",
+        "OTHER EXPERIENCES",
+        "OTHER WORK EXPERIENCES",
+        "EXPERIENCE",
+        "CREATIVE EXPERIENCE",
+    }
+    start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if _resume_section_name(line) in work_sections
+        ),
+        None,
+    )
+    if start is None:
+        return len(lines)
+    return next(
+        (
+            index
+            for index in range(start + 1, len(lines))
+            if (
+                (section := _resume_section_name(lines[index])) is not None
+                and section not in {"NOTABLE CLIENTS"}
+            )
+        ),
+        len(lines),
+    )
+
+
+def _restore_design_reference_entries(
+    text: str,
+    source_resume: str,
+) -> tuple[str, bool]:
+    reference_entries = _source_design_reference_entries(source_resume)
+    if not reference_entries:
+        return text.strip(), False
+
+    requirements = _extract_source_resume_requirements(source_resume)
+    all_companies = tuple(
+        company
+        for company in requirements.get("employers", [])
+        if isinstance(company, str)
+    )
+    all_roles = tuple(
+        role
+        for role in requirements.get("roles", [])
+        if isinstance(role, str)
+    )
+    lines = text.strip().splitlines()
+
+    for entry in reference_entries:
+        span = _design_entry_span(
+            lines,
+            entry,
+            all_companies=all_companies,
+            all_roles=all_roles,
+        )
+        if span is None:
+            start = end = _design_entry_insertion_index(lines)
+            extra_bullets: list[str] = []
+        else:
+            start, end = span
+            extra_bullets = _design_entry_extra_bullets(lines[start:end], entry)
+
+        replacement = _design_entry_lines(entry, extra_bullets)
+        if end < len(lines) and lines[end].strip():
+            replacement.append("")
+        lines[start:end] = replacement
+
+    restored = _collapse_blank_lines(lines)
+    return restored, restored != text.strip()
+
+
+def _validate_design_reference_entries(
+    *,
+    resume: str,
+    source_resume: str,
+    job_type: str,
+    add: _AddIssue,
+) -> None:
+    if job_type.strip().lower() != "design":
+        return
+    _, changed = _restore_design_reference_entries(resume, source_resume)
+    if changed:
+        add(
+            "RESUME_DESIGN_REFERENCE_ENTRY_MISMATCH",
+            "structure",
+            QASeverity.ERROR,
+            "resume",
+            "Design entries with source Notable Clients must preserve the exact "
+            "company descriptor, separate role/date lines, source bullets, and "
+            "complete Notable Clients block. Only source-supported bullet lines "
+            "may be added.",
+        )
 
 
 def _restore_development_reference_sections(
@@ -1389,6 +1886,38 @@ def _resume_section_name(line: str) -> str | None:
 
 def _reference_safe_text(text: str) -> str:
     return re.sub(r"\s*\u2014\s*", ", ", text).strip()
+
+
+def _resume_voice_reference_bullet(text: str) -> str:
+    """Canonicalize trusted source bullets without changing their facts."""
+    value = _reference_safe_text(text)
+    value = re.sub(
+        r"(?i)^I(?:\s+(?:am|have|had|was)|'(?:m|ve))\s+",
+        "",
+        value,
+    )
+    value = re.sub(r"(?i)^I\s+", "", value)
+    value = re.sub(r"(?i)\bunder\s+my\s+team\b", "on the team", value)
+    value = re.sub(r"(?i)\bmy\s+team\b", "the team", value)
+
+    replacements = (
+        (r"(?i)\bI'm\b", "the applicant is"),
+        (r"(?i)\bI've\b", "the applicant has"),
+        (r"(?i)\bI'll\b", "the applicant will"),
+        (r"(?i)\bmyself\b", "the applicant"),
+        (r"(?i)\bmine\b", "the applicant's"),
+        (r"(?i)\bmy\b", "the applicant's"),
+        (r"(?i)\bme\b", "the applicant"),
+        (r"(?i)\bI\b", "the applicant"),
+    )
+    for pattern, replacement in replacements:
+        value = re.sub(pattern, replacement, value)
+
+    first_letter = re.search(r"[A-Za-z]", value)
+    if first_letter is not None:
+        index = first_letter.start()
+        value = f"{value[:index]}{value[index].upper()}{value[index + 1:]}"
+    return value.strip()
 
 
 def _collapse_blank_lines(lines: list[str]) -> str:

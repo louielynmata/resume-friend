@@ -8,6 +8,11 @@ from backend.services.qa_service import (
     parse_document_draft,
     validate_draft,
 )
+from backend.services.work_sample_links import (
+    CASE_STUDIES_LABEL,
+    DESIGN_PORTFOLIO_LABEL,
+    format_work_samples_line,
+)
 
 
 SOURCE_RESUME = """Alex Example
@@ -15,6 +20,17 @@ alex@example.com
 https://github.com/alex
 Designer at Example Studio, 2020 - Present
 """
+
+DESIGN_LINKS = {
+    DESIGN_PORTFOLIO_LABEL: "https://drive.example/design-portfolio",
+    CASE_STUDIES_LABEL: "https://figma.example/case-studies",
+}
+DEVELOPMENT_LINKS = {
+    CASE_STUDIES_LABEL: "https://figma.example/case-studies",
+}
+SOURCE_WITH_DEVELOPMENT_LINKS = (
+    SOURCE_RESUME + "\n" + format_work_samples_line(DEVELOPMENT_LINKS)
+)
 
 
 def valid_draft() -> DocumentDraft:
@@ -49,6 +65,151 @@ alex@example.com
 SCORE_RATIONALE: Supported design experience aligns with the role.
 """,
     )
+
+
+class WorkSampleSemanticQATests(unittest.TestCase):
+    def test_safe_fixes_restore_design_links_without_relying_on_model_output(self):
+        draft = valid_draft()
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_materials=SOURCE_RESUME,
+            job_type="design",
+            required_work_sample_links=DESIGN_LINKS,
+        )
+
+        self.assertIn(format_work_samples_line(DESIGN_LINKS), fixed.resume)
+        self.assertIn("work-sample links", " ".join(changes).lower())
+
+    def test_safe_fixes_keep_development_track_case_studies_only(self):
+        draft = valid_draft()
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_materials=SOURCE_RESUME,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn(format_work_samples_line(DEVELOPMENT_LINKS), fixed.resume)
+        self.assertNotIn(DESIGN_PORTFOLIO_LABEL, fixed.resume)
+
+    def test_safe_fixes_preserve_identity_when_only_work_samples_are_required(self):
+        fixed, _ = apply_safe_deterministic_fixes(
+            valid_draft(),
+            owner_name="Alex Example",
+            source_materials=SOURCE_RESUME,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn("NAME: Alex Example", fixed.resume)
+        self.assertIn("ROLE: Product Designer", fixed.resume)
+        self.assertIn("CONTACT: alex@example.com", fixed.resume)
+        self.assertIn(format_work_samples_line(DEVELOPMENT_LINKS), fixed.resume)
+
+    def test_validator_rejects_plain_text_required_label(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "LINKS: https://github.com/alex",
+            "LINKS: https://github.com/alex\n"
+            f"WORK_SAMPLES: {CASE_STUDIES_LABEL}",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            source_materials=SOURCE_WITH_DEVELOPMENT_LINKS,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            {issue.code for issue in issues},
+        )
+
+    def test_validator_rejects_wrong_required_target(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "LINKS: https://github.com/alex",
+            "LINKS: https://github.com/alex\n"
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL}]"
+            "(https://wrong.example/case-studies)",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            source_materials=SOURCE_WITH_DEVELOPMENT_LINKS,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            {issue.code for issue in issues},
+        )
+
+    def test_validator_rejects_case_mutated_required_link_line(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "LINKS: https://github.com/alex",
+            "LINKS: https://github.com/alex\n"
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL.lower()}]"
+            f"({DEVELOPMENT_LINKS[CASE_STUDIES_LABEL]})",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            source_materials=SOURCE_WITH_DEVELOPMENT_LINKS,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertIn(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            {issue.code for issue in issues},
+        )
+
+    def test_source_url_candidates_preserve_balanced_parentheses_exactly(self):
+        balanced_url = (
+            "https://figma.example/files/a_(b)?node=(c)&mode=dev#section"
+        )
+
+        candidates = qa_service._source_url_candidates(
+            f"[{CASE_STUDIES_LABEL}]({balanced_url})"
+        )
+
+        self.assertIn(balanced_url, candidates)
+
+    def test_validator_accepts_exact_track_required_line(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "LINKS: https://github.com/alex",
+            "LINKS: https://github.com/alex\n"
+            + format_work_samples_line(DEVELOPMENT_LINKS),
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=SOURCE_RESUME,
+            source_materials=SOURCE_WITH_DEVELOPMENT_LINKS,
+            job_type="development",
+            required_work_sample_links=DEVELOPMENT_LINKS,
+        )
+
+        self.assertNotIn(
+            "RESUME_REQUIRED_WORK_SAMPLE_LINK_MISMATCH",
+            {issue.code for issue in issues},
+        )
 
 
 class QAServiceTests(unittest.TestCase):
@@ -408,7 +569,8 @@ Example Studio
         )
 
         self.assertIn(
-            "WORK_SAMPLES: [Design Portfolio (Reel and PDF)]",
+            "WORK_SAMPLES: [Design Portfolio (Reel and PDF)](https://drive.example/portfolio) "
+            "| [Case Studies and Product Work](https://figma.example/case-studies)",
             fixed.resume,
         )
         self.assertNotIn("CERTIFICATIONS", fixed.resume)
@@ -420,6 +582,288 @@ Example Studio
         self.assertIn("Applied the design resume section order", " ".join(changes))
         self.assertEqual(fixed_again.model_dump(), fixed.model_dump())
         self.assertEqual(second_changes, [])
+
+    def test_validator_rejects_modified_design_reference_entry_structure(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director / Senior Art Director
+**Example Creative Agency**
+360 Entertainment & Advertising Agency
+**Creative Director:** April 2021 - Oct 2024, Full-time | Oct 2024 - 2026, Present Freelance
+**Senior Art Director:** April 2017 - April 2018, Full-time | 2019 - 2020, Freelance
+
+- Directed integrated campaigns.
+
+#### Notable Clients
+
+- Example Beverage Group - regional portfolio
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "Example Studio | Calgary\n"
+            "PRODUCT DESIGNER - 2020 - Present\n"
+            "● Built **accessible interfaces** for customer workflows.",
+            "Example Creative Agency | Rewritten descriptor\n"
+            "CREATIVE DIRECTOR / SENIOR ART DIRECTOR - 2017 - 2026\n"
+            "Unapproved structural subtitle\n"
+            "● Added a source-supported campaign bullet.",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+
+        self.assertIn(
+            "RESUME_DESIGN_REFERENCE_ENTRY_MISMATCH",
+            {issue.code for issue in issues},
+        )
+
+    def test_safe_fixes_lock_design_reference_entry_and_notable_clients(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director / Senior Art Director
+**Example Creative Agency**
+360 Entertainment & Advertising Agency
+**Creative Director:** April 2021 - Oct 2024, Full-time | Oct 2024 - 2026, Present Freelance
+**Senior Art Director:** April 2017 - April 2018, Full-time | 2019 - 2020, Freelance
+
+- Directed integrated campaigns.
+- Mentored multidisciplinary design teams.
+
+#### Notable Clients
+
+- Example Beverage Group - regional portfolio
+- Example Retail Group - seasonal campaigns
+
+### Multimedia Designer
+**Example Production Studio**
+2020 - Present
+
+- Produced digital campaign assets.
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "Example Studio | Calgary\n"
+            "PRODUCT DESIGNER - 2020 - Present\n"
+            "● Built **accessible interfaces** for customer workflows.",
+            "Example Creative Agency | Rewritten descriptor\n"
+            "CREATIVE DIRECTOR / SENIOR ART DIRECTOR - 2017 - 2026\n"
+            "Unapproved structural subtitle\n"
+            "● Added a source-supported campaign bullet.\n\n"
+            "NOTABLE CLIENTS\n"
+            "● Example Beverage Group only\n\n"
+            "Example Production Studio\n"
+            "MULTIMEDIA DESIGNER - 2020 - Present\n"
+            "● Produced digital campaign assets.",
+        )
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+        fixed_again, second_changes = apply_safe_deterministic_fixes(
+            fixed,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+        issue_codes = {
+            issue.code
+            for issue in validate_draft(
+                fixed,
+                owner_name="Alex Example",
+                source_resume=source_resume,
+                source_materials=source_resume,
+                job_type="design",
+            )
+        }
+
+        expected_block = """COMPANY: Example Creative Agency | 360 Entertainment & Advertising Agency
+CREATIVE DIRECTOR - April 2021 - Oct 2024, Full-time; Oct 2024 - 2026, Present Freelance
+SENIOR ART DIRECTOR - April 2017 - April 2018, Full-time; 2019 - 2020, Freelance
+● Directed integrated campaigns.
+● Mentored multidisciplinary design teams.
+● Added a source-supported campaign bullet.
+
+SUBHEADING: Notable Clients
+● Example Beverage Group - regional portfolio
+● Example Retail Group - seasonal campaigns"""
+        self.assertIn(expected_block, fixed.resume)
+        self.assertNotIn("Rewritten descriptor", fixed.resume)
+        self.assertNotIn("CREATIVE DIRECTOR / SENIOR ART DIRECTOR", fixed.resume)
+        self.assertNotIn("Unapproved structural subtitle", fixed.resume)
+        self.assertNotIn("Example Beverage Group only", fixed.resume)
+        self.assertIn("Example Production Studio", fixed.resume)
+        self.assertIn(
+            "Restored fixed design entry structure and Notable Clients",
+            " ".join(changes),
+        )
+        self.assertNotIn("RESUME_DESIGN_REFERENCE_ENTRY_MISMATCH", issue_codes)
+        self.assertEqual(fixed_again.model_dump(), fixed.model_dump())
+        self.assertEqual(second_changes, [])
+
+    def test_safe_fixes_normalize_first_person_in_locked_design_source_bullets(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director
+**Example Creative Agency**
+360 Entertainment & Advertising Agency
+**Creative Director:** April 2021 - Oct 2024, Full-time
+
+- I led my team through integrated campaigns.
+- Mentored and improved motivation for designers under my team, resulting in a regional award.
+
+#### Notable Clients
+
+- Example Beverage Group - regional portfolio
+"""
+        draft = valid_draft()
+        draft.resume += """
+
+COMPANY: Example Creative Agency | 360 Entertainment & Advertising Agency
+CREATIVE DIRECTOR - April 2021 - Oct 2024, Full-time
+- I led my team through integrated campaigns.
+- Mentored and improved motivation for designers under my team, resulting in a regional award.
+
+SUBHEADING: Notable Clients
+- Example Beverage Group - regional portfolio
+"""
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+        issue_codes = {
+            issue.code
+            for issue in validate_draft(
+                fixed,
+                owner_name="Alex Example",
+                source_resume=source_resume,
+                source_materials=source_resume,
+                job_type="design",
+            )
+        }
+
+        self.assertIn("Led the team through integrated campaigns.", fixed.resume)
+        self.assertIn(
+            "Mentored and improved motivation for designers on the team, "
+            "resulting in a regional award.",
+            fixed.resume,
+        )
+        self.assertEqual(
+            fixed.resume.count("Led the team through integrated campaigns."),
+            1,
+        )
+        self.assertEqual(
+            fixed.resume.count(
+                "Mentored and improved motivation for designers on the team, "
+                "resulting in a regional award."
+            ),
+            1,
+        )
+        self.assertNotIn("RESUME_FIRST_PERSON", issue_codes)
+
+    def test_safe_fixes_filter_only_rewritten_design_source_bullets(self):
+        source_resume = """# Alex Example
+
+## Work Experience
+
+### Creative Director
+**Example Creative Agency**
+360 Entertainment & Advertising Agency
+**Creative Director:** April 2021 - Oct 2024, Full-time
+
+- Spearheaded numerous 360-degree marketing campaigns and stakeholder communication from ideation to execution that led to 90M+ impressions across APAC, increased revenue, and elevated brand positioning.
+- Provided creative leadership and contributed to key board-level decision-making, resulting in 300% company growth and CAD 1.5M-2M in gross profits yearly.
+- Mentored and improved motivation for designers on the team, resulting in a regional award, millions of impressions, and millions in positive brand value.
+- Handled 10+ active clients across Southeast Asia, ensuring a 90%+ repeat business rate and showing commitment to customer loyalty and service excellence.
+
+#### Notable Clients
+
+- Example Beverage Group - regional portfolio
+"""
+        source_materials = source_resume + """
+
+## Interview Transcript
+
+Developed a production intake system that cut approval cycles by 35%.
+"""
+        rewritten_campaign = (
+            "Spearheaded numerous 360-degree marketing campaigns and stakeholder "
+            "communications from ideation to execution. These initiatives generated "
+            "over 90M+ impressions across the APAC region, significantly increasing "
+            "revenue and elevating brand positioning."
+        )
+        rewritten_growth = (
+            "Provided creative leadership and directly contributed to key board-level "
+            "decision making, resulting in a recorded 300% company growth and "
+            "generating an annual gross profit between CAD 1.5M-2M."
+        )
+        rewritten_mentorship = (
+            "Mentored team designers, leading improvements that resulted in regional "
+            "awards, millions of impressions, and increased positive brand value."
+        )
+        rewritten_client_work = (
+            "Managed over 10 active client accounts across Southeast Asia, maintaining "
+            "a 90%+ repeat business rate and establishing deep customer loyalty through "
+            "service excellence."
+        )
+        distinct_addition = (
+            "Developed a production intake system that cut approval cycles by 35%."
+        )
+        draft = valid_draft()
+        draft.resume += f"""
+
+COMPANY: Example Creative Agency | 360 Entertainment & Advertising Agency
+CREATIVE DIRECTOR - April 2021 - Oct 2024, Full-time
+● {rewritten_campaign}
+● {rewritten_growth}
+● {rewritten_mentorship}
+● {rewritten_client_work}
+● {distinct_addition}
+
+SUBHEADING: Notable Clients
+● Example Beverage Group - regional portfolio
+"""
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Product Designer",
+            source_resume=source_resume,
+            source_materials=source_materials,
+            job_type="design",
+        )
+
+        self.assertNotIn(rewritten_campaign, fixed.resume)
+        self.assertNotIn(rewritten_growth, fixed.resume)
+        self.assertNotIn(rewritten_mentorship, fixed.resume)
+        self.assertNotIn(rewritten_client_work, fixed.resume)
+        self.assertIn(distinct_addition, fixed.resume)
+        self.assertEqual(fixed.resume.count("90M+ impressions across APAC"), 1)
+        self.assertEqual(fixed.resume.count("300% company growth"), 1)
+        self.assertEqual(fixed.resume.count("millions of impressions"), 1)
+        self.assertEqual(fixed.resume.count("10+ active clients"), 1)
 
     def test_safe_fixes_apply_development_header_and_section_contract(self):
         instructions = """RESUME HEADER - REQUIRED EXACT VALUES:
@@ -472,7 +916,7 @@ Software Development Diploma
         )
 
         self.assertIn(
-            "WORK_SAMPLES: [Case Studies and Product Work]",
+            "WORK_SAMPLES: [Case Studies and Product Work](https://figma.example/case-studies)",
             fixed.resume,
         )
         ordered_sections = [

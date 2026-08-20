@@ -1,0 +1,5 @@
+# Default owner for every repository path.
+* @louielynmata
+
+# Protect contribution and review configuration explicitly.
+/.github/ @louielynmata

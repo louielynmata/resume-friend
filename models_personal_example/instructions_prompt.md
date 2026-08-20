@@ -25,6 +25,7 @@ Rules:
 - Primary role title is ALL CAPS on the next line, immediately after the rule.
 - Contact info and links follow below the title lines. All header lines are centered.
 - Add a final labeled work-samples line. Include Design Portfolio (Reel and PDF) only for design roles. Include Case Studies and Product Work for design and development roles. Copy every supplied URL character-for-character.
+- Every included work-sample label must keep its complete Markdown URL so the DOCX and PDF remain clickable.
 - After the last header line (links or portfolio), leave one blank line before the body begins.
 - Do NOT add another horizontal rule between the header and PROFESSIONAL SUMMARY.
 
@@ -187,7 +188,7 @@ General rules for work entries:
 - Company names are bold.
 - Dates are on the same line as the role or company — compact and inline.
 - One blank line between separate job entries.
-- Notable Clients or Notable Clients & Works is a bold sub-label (not a section header) followed by bullet items. Only include if it materially helps the application.
+- Notable Clients or Notable Clients & Works is a required bold sub-label (not a section header) whenever it exists in the source, followed by every source client bullet. Preserve the company descriptor and separate role/date lines around it; only source-supported bullet lines may be added to that entry.
 - No blank line between the section header (e.g., RELATED WORK EXPERIENCES) and the first job entry beneath it.
 
 ---

@@ -31,6 +31,8 @@ CONTACT: [Copy one compact contact line from the supplied materials; values only
 LINKS: [Copy relevant professional links exactly from the supplied materials]
 WORK_SAMPLES: [Copy supported portfolio/case-study links using `[Visible label](exact URL)` syntax. Include the design portfolio only for DESIGN; include case studies for either track when supplied.]
 
+Never output an included work-sample label as plain text; preserve the complete [label](exact URL) pair.
+
 PROFESSIONAL SUMMARY
 [3-5 sentences. Use **bold** inline for key phrases. Do not use dash sentence connectors.]
 
@@ -66,6 +68,7 @@ Projects, Notable Projects, Notable Clients
 SECTION RULES:
 - Education is always a separate section.
 - DESIGN resumes must omit certificates/certifications. Their last two sections must be `EDUCATION`, then `AWARDS AND ACHIEVEMENTS`.
+- For DESIGN resumes, every source work entry containing a `Notable Clients` or `Notable Clients & Works` subsection is a fixed reference entry. Preserve its company name and descriptor, keep each source role and full date history on a separate line, retain every source achievement bullet, and retain the complete notable-client list. The only permitted additions inside that entry are source-supported `●` bullet lines placed after the source achievement bullets and before the notable-client subheading.
 - DEVELOPMENT resumes must end in this exact order: `EDUCATION`, `PROJECTS`, `RELATED WORK EXPERIENCES`, `OTHER WORK EXPERIENCES`, `CERTIFICATES`, `AWARDS AND ACHIEVEMENTS`. Preserve the source grouping and do not merge the two work-experience sections.
 - Every employer in the source resume must remain present. Reduce less relevant bullets if needed, but do not drop the employer, role, or dates.
 - Preserve every date segment attached to a role. When a source role contains both full-time and freelance ranges, keep both ranges on that role line; never retain only the first range.
@@ -111,6 +114,7 @@ RULES FOR ENTRIES:
 - Do not add a standalone descriptive subtitle before the company or role.
 - Use a pipe only in contact lines, company/context lines for Pattern B, and institution/year lines.
 - Do not use a pipe inside bullet text.
+- For a fixed DESIGN reference entry, output `COMPANY: Company Name | source descriptor`, then one `ROLE TITLE - verified dates` line per source role, the source achievement bullets, any additional source-supported bullets, `SUBHEADING: Notable Clients` (or the exact source `Notable Clients & Works` label), and every source client bullet. Do not emit `NOTABLE CLIENTS` as a major section or add any other non-bullet line inside the entry.
 - For DEVELOPMENT resumes, the source `Projects`, `Related Work Experiences`, and `Other Experiences` sections are fixed reference content. Preserve their content order, context, dates, employers, roles, and bullets without rewriting, combining, omitting, or adding claims. Output their section headings as `PROJECTS`, `RELATED WORK EXPERIENCES`, and `OTHER WORK EXPERIENCES`.
 - Render fixed development projects as `PROJECT: Project name | verified dates`, or as `PROJECT: Project name` followed by `PROJECT_META: Context | verified dates` when the source provides a separate context line.
 - Render fixed development employers as `COMPANY: Company or entity in source casing`, followed by one `ROLE TITLE - verified dates` line per role and the exact source bullets.
