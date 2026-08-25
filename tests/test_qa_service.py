@@ -1463,6 +1463,52 @@ Graduated with honors
         self.assertEqual(fixed_again, fixed)
         self.assertEqual(second_changes, [])
 
+    def test_safe_fixes_move_source_ai_tools_out_of_legacy_toolkit_row(self):
+        source_resume = """# Alex Example
+
+## Toolkit and Technical Skills
+
+### AI Tools
+- Pair Pilot
+- Local Assistant
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TOOLKIT: Web & Tech Stack | Figma, Pair Pilot, Local Assistant\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            job_type="design",
+        )
+        issues = validate_draft(
+            fixed,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+        codes = {issue.code for issue in issues}
+
+        self.assertEqual(
+            fixed.resume.count(
+                "CATEGORY: AI Tools | Pair Pilot, Local Assistant"
+            ),
+            1,
+        )
+        self.assertIn("TOOLKIT: Web & Tech Stack | Figma", fixed.resume)
+        self.assertNotIn(
+            "TOOLKIT: Web & Tech Stack | Figma, Pair Pilot, Local Assistant",
+            fixed.resume,
+        )
+        self.assertNotIn("RESUME_SOURCE_AI_TOOLS_MISSING", codes)
+        self.assertNotIn("RESUME_AI_CONTENT_OUTSIDE_TOOLS_CATEGORY", codes)
+        self.assertIn("source-backed AI tools", " ".join(changes))
+
     def test_safe_fixes_repair_collapsed_roles_dates_and_colon_categories(self):
         source_resume = """# Alex Example
 

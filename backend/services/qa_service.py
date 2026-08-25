@@ -263,8 +263,7 @@ def apply_safe_deterministic_fixes(
         )
         if ai_tools_changed:
             changes.append(
-                "Restored the source-backed AI tools category for the "
-                "development resume."
+                "Restored the source-backed AI tools category for the resume."
             )
 
     fixed.resume, section_order_changed = _apply_track_section_contract(
@@ -651,7 +650,7 @@ def _validate_truthfulness(
             "truthfulness",
             QASeverity.ERROR,
             "resume",
-            "The development resume must keep every tool from the source "
+            "The resume must keep every tool from the source "
             "`AI Tools` subsection in a `CATEGORY: AI Tools | ...` line: "
             + ", ".join(missing_ai_tools),
         )
@@ -2537,16 +2536,59 @@ def _restore_source_ai_tools(
 
     desired = f"CATEGORY: AI Tools | {', '.join(tools)}"
     lines = text.strip().splitlines()
+    changed = False
+    ai_category_index: int | None = None
     for index, line in enumerate(lines):
         match = re.match(
             r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
             line.strip(),
         )
         if match and _normalized_match_text(match.group(1)) == "ai tools":
-            if line.strip() == desired:
-                return text.strip(), False
-            lines[index] = desired
-            return "\n".join(lines).strip(), True
+            ai_category_index = index
+            if line.strip() != desired:
+                lines[index] = desired
+                changed = True
+            break
+
+    tool_keys = {_normalized_match_text(tool) for tool in tools}
+    last_legacy_row_index: int | None = None
+    for index, line in enumerate(lines):
+        legacy = re.match(
+            r"(?i)^([^:]+?)\s*:\s*(.+?)\s*\|\s*(.+)$",
+            line.strip(),
+        )
+        if (
+            legacy is None
+            or _plain_text(legacy.group(1)).upper() not in _CATEGORY_SECTION_NAMES
+        ):
+            continue
+
+        section, label, raw_values = legacy.groups()
+        values = [
+            value.strip()
+            for value in re.split(r"\s*[;,]\s*", raw_values)
+            if value.strip()
+        ]
+        retained_values = [
+            value
+            for value in values
+            if _normalized_match_text(value) not in tool_keys
+        ]
+        if len(retained_values) == len(values):
+            continue
+
+        last_legacy_row_index = index
+        if retained_values:
+            lines[index] = (
+                f"{section.strip()}: {label.strip()} | "
+                f"{', '.join(retained_values)}"
+            )
+        else:
+            lines[index] = ""
+        changed = True
+
+    if ai_category_index is not None:
+        return "\n".join(lines).strip(), changed
 
     preferred_sections = (
         "TECHNICAL SKILLS",
@@ -2574,6 +2616,10 @@ def _restore_source_ai_tools(
         while end > section_index + 1 and not lines[end - 1].strip():
             end -= 1
         lines.insert(end, desired)
+        return "\n".join(lines).strip(), True
+
+    if last_legacy_row_index is not None:
+        lines.insert(last_legacy_row_index + 1, desired)
         return "\n".join(lines).strip(), True
 
     return text.strip(), False
