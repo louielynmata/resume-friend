@@ -1422,6 +1422,156 @@ Graduated with honors
         self.assertEqual(fixed_again, fixed)
         self.assertEqual(second_changes, [])
 
+    def test_safe_fixes_remove_repeated_skill_prefixes_and_toolkit_duplicates(self):
+        draft = valid_draft()
+        draft.resume = """NAME: Alex Example
+ROLE: Graphic Designer
+CONTACT: alex@example.com
+LINKS: https://example.com
+
+DESIGN SKILLS
+CATEGORY: DESIGN SKILLS: Visual Identity | branding, graphic design
+CATEGORY: TECHNICAL SKILLS: Graphic & Multimedia Tools | Adobe Creative Suite, Figma
+CATEGORY: CORE SKILLS: Production | print production, Adobe Creative Suite
+
+---
+
+TOOLKIT
+CATEGORY: Design & Multimedia Tools | Adobe Creative Suite, Figma, Blender
+
+---
+
+WORK EXPERIENCE
+Example Studio | Calgary
+PRODUCT DESIGNER - 2020 - Present
+● Built accessible interfaces.
+
+---
+
+EDUCATION
+Example University | 2020
+Design Diploma
+
+---
+
+AWARDS AND ACHIEVEMENTS
+● Example Award
+"""
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            job_type="design",
+        )
+
+        self.assertIn(
+            "CATEGORY: Visual Identity | branding, graphic design",
+            fixed.resume,
+        )
+        self.assertIn(
+            "CATEGORY: Production | print production",
+            fixed.resume,
+        )
+        self.assertNotIn("DESIGN SKILLS: Visual Identity", fixed.resume)
+        self.assertNotIn("TECHNICAL SKILLS: Graphic & Multimedia Tools", fixed.resume)
+        self.assertNotIn("CORE SKILLS: Production", fixed.resume)
+        self.assertNotIn("Graphic & Multimedia Tools", fixed.resume)
+        self.assertEqual(fixed.resume.count("Adobe Creative Suite"), 1)
+        self.assertEqual(fixed.resume.count("Figma"), 1)
+        self.assertIn("CATEGORY builder markers", " ".join(changes))
+
+    def test_safe_fixes_limit_non_toolkit_categories_across_skill_sections(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "DESIGN SKILLS\n"
+            "CATEGORY: Visual Identity | branding\n"
+            "CATEGORY: Production Strategy | campaign production\n"
+            "CATEGORY: Business Operations | project management\n"
+            "CATEGORY: Creative Leadership | mentoring\n"
+            "CATEGORY: Client Management | client servicing\n"
+            "CATEGORY: Technical Expertise | product thinking\n\n"
+            "---\n\n"
+            "TOOLKIT\n"
+            "CATEGORY: Design Tools | Figma, Blender\n\n"
+            "---\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            job_type="design",
+        )
+
+        before_toolkit = fixed.resume.split("\nTOOLKIT\n", 1)[0]
+        self.assertEqual(before_toolkit.count("CATEGORY:"), 4)
+        self.assertIn("Visual Identity", before_toolkit)
+        self.assertIn("Creative Leadership", before_toolkit)
+        self.assertNotIn("Client Management", before_toolkit)
+        self.assertNotIn("Technical Expertise", before_toolkit)
+        self.assertIn("limited compact skill categories", " ".join(changes))
+
+    def test_safe_fixes_preserve_required_ai_tools_when_limiting_categories(self):
+        source_resume = """# Alex Example
+
+## Toolkit
+
+### AI Tools
+- Pair Pilot
+- Local Assistant
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TECHNICAL SKILLS\n"
+            "CATEGORY: Languages | Python\n"
+            "CATEGORY: Frameworks | Django\n"
+            "CATEGORY: Infrastructure | AWS\n"
+            "CATEGORY: Delivery | CI/CD\n"
+            "CATEGORY: AI Tools | Pair Pilot, Local Assistant\n\n"
+            "---\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+        )
+
+        self.assertEqual(fixed.resume.count("CATEGORY:"), 4)
+        self.assertIn(
+            "CATEGORY: AI Tools | Pair Pilot, Local Assistant",
+            fixed.resume,
+        )
+        self.assertNotIn("CATEGORY: Delivery | CI/CD", fixed.resume)
+
+    def test_validator_requires_singular_other_work_experience_source_section(self):
+        source_resume = """# Alex Example
+
+## Other Work Experience
+
+### Salesperson
+**Example Retailer**
+2024 - Present
+
+- Helped customers choose products.
+"""
+
+        issues = validate_draft(
+            valid_draft(),
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="design",
+        )
+
+        codes = {issue.code for issue in issues}
+        self.assertIn("RESUME_SOURCE_EXPERIENCE_SECTIONS_MISSING", codes)
+        self.assertIn("RESUME_SOURCE_EMPLOYERS_MISSING", codes)
+        self.assertIn("RESUME_SOURCE_ROLES_MISSING", codes)
+
     def test_safe_fixes_restore_source_backed_ai_tools_category(self):
         source_resume = """# Alex Example
 

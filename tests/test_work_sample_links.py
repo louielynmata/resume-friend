@@ -12,6 +12,9 @@ from backend.services.work_sample_links import (
 
 PORTFOLIO_URL = "https://drive.example/design-portfolio?usp=sharing&source=resume"
 CASE_STUDIES_URL = "https://figma.example/case-studies?node-id=1-2"
+DEVELOPMENT_CASE_STUDIES_URL = (
+    "https://figma.example/development-case-studies?node-id=3-4"
+)
 INSTRUCTIONS = f"""DESIGN RESUME HEADER - REQUIRED EXACT VALUES:
 WORK_SAMPLES: [{DESIGN_PORTFOLIO_LABEL}]({PORTFOLIO_URL}) | [{CASE_STUDIES_LABEL}]({CASE_STUDIES_URL})
 END DESIGN RESUME HEADER
@@ -35,6 +38,27 @@ class WorkSampleLinkTests(unittest.TestCase):
         self.assertEqual(
             required_work_sample_links(INSTRUCTIONS, "development"),
             {CASE_STUDIES_LABEL: CASE_STUDIES_URL},
+        )
+
+    def test_each_track_selects_its_own_case_studies_link(self):
+        track_specific = INSTRUCTIONS.replace(
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL}]({CASE_STUDIES_URL})\n"
+            "END DEVELOPMENT RESUME HEADER",
+            f"WORK_SAMPLES: [{CASE_STUDIES_LABEL}]"
+            f"({DEVELOPMENT_CASE_STUDIES_URL})\n"
+            "END DEVELOPMENT RESUME HEADER",
+        )
+
+        self.assertEqual(
+            required_work_sample_links(track_specific, "design"),
+            {
+                DESIGN_PORTFOLIO_LABEL: PORTFOLIO_URL,
+                CASE_STUDIES_LABEL: CASE_STUDIES_URL,
+            },
+        )
+        self.assertEqual(
+            required_work_sample_links(track_specific, "development"),
+            {CASE_STUDIES_LABEL: DEVELOPMENT_CASE_STUDIES_URL},
         )
 
     def test_repeated_identical_case_study_link_is_unambiguous(self):

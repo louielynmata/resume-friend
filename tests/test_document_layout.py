@@ -430,8 +430,16 @@ LINKS: alex.example
             self.assertNotIn("https://example.com", hyperlink_targets)
 
     def test_resume_renders_centered_labeled_work_sample_hyperlinks(self):
-        portfolio_url = "https://drive.example/design-portfolio"
-        case_studies_url = "https://figma.example/case-studies"
+        portfolio_url = (
+            "https://drive.example/design-portfolio?usp=sharing&source=resume"
+        )
+        case_studies_url = (
+            "https://figma.example/case-studies?node-id=1-2"
+        )
+        required_hyperlinks = {
+            "Design Portfolio (Reel and PDF)": portfolio_url,
+            "Case Studies and Product Work": case_studies_url,
+        }
         content = f"""NAME: Alex Example
 ROLE: Product Designer
 CONTACT: alex@example.com | +1 555 010 0000 | Calgary, AB
@@ -443,12 +451,18 @@ Designer focused on accessible digital experiences.
 """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "resume.docx"
-            _build_resume_docx(content, path)
-            document = Document(path)
-            work_samples = paragraph_starting_with(
-                document,
-                "Design Portfolio (Reel and PDF)",
+            _build_resume_docx(
+                content,
+                path,
+                required_hyperlinks=required_hyperlinks,
             )
+            document = Document(path)
+            work_samples = [
+                paragraph
+                for paragraph in document.paragraphs
+                if "Design Portfolio (Reel and PDF)" in paragraph.text
+                or "Case Studies and Product Work" in paragraph.text
+            ]
             hyperlink_targets = {
                 relationship.target_ref
                 for relationship in document.part.rels.values()
@@ -456,10 +470,15 @@ Designer focused on accessible digital experiences.
             }
 
             self.assertEqual(
-                work_samples.text,
-                "Design Portfolio (Reel and PDF) | Case Studies and Product Work",
+                [paragraph.text for paragraph in work_samples],
+                [
+                    f"Design Portfolio (Reel and PDF): {portfolio_url}",
+                    f"Case Studies and Product Work: {case_studies_url}",
+                ],
             )
-            self.assertEqual(work_samples.alignment, 1)
+            portfolio, case_studies = work_samples
+            self.assertEqual(portfolio.alignment, 1)
+            self.assertEqual(case_studies.alignment, 1)
             self.assertIn(portfolio_url, hyperlink_targets)
             self.assertIn(case_studies_url, hyperlink_targets)
 
@@ -480,6 +499,48 @@ Designer focused on accessible digital experiences.
             self.assertEqual(
                 rendered_targets["Case Studies and Product Work"],
                 case_studies_url,
+            )
+            self.assertEqual(rendered_targets[portfolio_url], portfolio_url)
+            self.assertEqual(rendered_targets[case_studies_url], case_studies_url)
+
+    def test_development_resume_renders_only_visible_case_studies_url(self):
+        case_studies_url = (
+            "https://figma.example/case-studies?node-id=1-2"
+        )
+        content = f"""NAME: Alex Example
+ROLE: Software Engineer
+CONTACT: alex@example.com | +1 555 010 0000 | Calgary, AB
+LINKS: alex.example | linkedin.com/in/alex | github.com/alex
+WORK_SAMPLES: [Case Studies and Product Work]({case_studies_url})
+
+PROFESSIONAL SUMMARY
+Engineer focused on accessible digital experiences.
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(
+                content,
+                path,
+                required_hyperlinks={
+                    "Case Studies and Product Work": case_studies_url,
+                },
+            )
+            document = Document(path)
+            case_studies = paragraph_starting_with(
+                document,
+                "Case Studies and Product Work",
+            )
+
+            self.assertEqual(
+                case_studies.text,
+                f"Case Studies and Product Work: {case_studies_url}",
+            )
+            self.assertEqual(case_studies.alignment, 1)
+            self.assertFalse(
+                any(
+                    paragraph.text.startswith("Design Portfolio")
+                    for paragraph in document.paragraphs
+                )
             )
 
 

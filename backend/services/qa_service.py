@@ -266,6 +266,24 @@ def apply_safe_deterministic_fixes(
                 "Restored the source-backed AI tools category for the resume."
             )
 
+    fixed.resume, toolkit_duplicates_removed = (
+        _remove_toolkit_duplicates_from_skill_categories(fixed.resume)
+    )
+    if toolkit_duplicates_removed:
+        changes.append(
+            "Removed repeated Toolkit items from compact skill categories."
+        )
+
+    fixed.resume, categories_limited = _limit_non_toolkit_categories(
+        fixed.resume,
+        maximum=4,
+    )
+    if categories_limited:
+        changes.append(
+            "Tailored and limited compact skill categories to the four most "
+            "relevant groups before Toolkit."
+        )
+
     fixed.resume, section_order_changed = _apply_track_section_contract(
         fixed.resume,
         job_type=job_type,
@@ -1977,7 +1995,12 @@ def _required_experience_sections(source_resume: str) -> list[str]:
         if normalized in {"related work experience", "related work experiences"}:
             if "RELATED WORK EXPERIENCES" not in required:
                 required.append("RELATED WORK EXPERIENCES")
-        elif normalized in {"other experience", "other experiences"}:
+        elif normalized in {
+            "other experience",
+            "other experiences",
+            "other work experience",
+            "other work experiences",
+        }:
             if "OTHER WORK EXPERIENCES" not in required:
                 required.append("OTHER WORK EXPERIENCES")
     return required
@@ -1993,6 +2016,8 @@ def _extract_source_resume_requirements(source_resume: str) -> dict[str, object]
             "Related Work Experiences",
             "Other Experience",
             "Other Experiences",
+            "Other Work Experience",
+            "Other Work Experiences",
             "Creative Experience",
         },
     )
@@ -2416,8 +2441,9 @@ def _normalize_resume_categories(text: str) -> tuple[str, bool]:
             )
             if category:
                 label, raw_values = category.groups()
+                normalized_label = _normalize_category_label(label)
                 normalized_line = (
-                    f"CATEGORY: {label.strip()} | "
+                    f"CATEGORY: {normalized_label} | "
                     f"{_normalize_category_values(raw_values)}"
                 )
                 normalized_block.append(normalized_line)
@@ -2434,7 +2460,7 @@ def _normalize_resume_categories(text: str) -> tuple[str, bool]:
                 label, raw_values = legacy.groups()
                 values = _normalize_category_values(raw_values)
                 normalized_block.append(
-                    f"CATEGORY: {label.strip()} | {values}"
+                    f"CATEGORY: {_normalize_category_label(label)} | {values}"
                 )
                 changed = True
             else:
@@ -2465,12 +2491,144 @@ def _normalize_resume_categories(text: str) -> tuple[str, bool]:
     return "\n".join(lines).strip(), changed
 
 
+def _normalize_category_label(raw_label: str) -> str:
+    label = raw_label.strip()
+    for section in sorted(_CATEGORY_SECTION_NAMES, key=len, reverse=True):
+        match = re.match(
+            rf"^{re.escape(section)}\s*:\s*(.+)$",
+            label,
+            re.IGNORECASE,
+        )
+        if match:
+            return match.group(1).strip()
+    return label
+
+
 def _normalize_category_values(raw_values: str) -> str:
     values = [
         re.sub(r"\s+", " ", value).strip()
         for value in re.split(r"\s*[;,|]\s*", raw_values)
     ]
     return ", ".join(value for value in values if value)
+
+
+def _remove_toolkit_duplicates_from_skill_categories(
+    text: str,
+) -> tuple[str, bool]:
+    lines = text.strip().splitlines()
+    toolkit_values: set[str] = set()
+    current_section = ""
+
+    for line in lines:
+        section = _resume_section_name(line)
+        if section is not None:
+            current_section = section
+            continue
+        if current_section != "TOOLKIT":
+            continue
+        match = re.match(
+            r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
+            line.strip(),
+        )
+        if match is None:
+            continue
+        toolkit_values.update(
+            _normalized_toolkit_value(value)
+            for value in match.group(2).split(",")
+            if value.strip()
+        )
+
+    if not toolkit_values:
+        return text.strip(), False
+
+    changed = False
+    current_section = ""
+    for index, line in enumerate(lines):
+        section = _resume_section_name(line)
+        if section is not None:
+            current_section = section
+            continue
+        if current_section not in _CATEGORY_SECTION_NAMES - {"TOOLKIT"}:
+            continue
+        match = re.match(
+            r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
+            line.strip(),
+        )
+        if match is None:
+            continue
+        label, raw_values = match.groups()
+        values = [value.strip() for value in raw_values.split(",") if value.strip()]
+        retained = [
+            value
+            for value in values
+            if _normalized_toolkit_value(value) not in toolkit_values
+        ]
+        if retained == values:
+            continue
+        lines[index] = (
+            f"CATEGORY: {label.strip()} | {', '.join(retained)}"
+            if retained
+            else ""
+        )
+        changed = True
+
+    return _collapse_blank_lines(lines), changed
+
+
+def _normalized_toolkit_value(value: str) -> str:
+    normalized = _normalized_match_text(value)
+    return normalized.removeprefix("adobe ")
+
+
+def _limit_non_toolkit_categories(
+    text: str,
+    *,
+    maximum: int,
+) -> tuple[str, bool]:
+    lines = text.strip().splitlines()
+    current_section = ""
+    categories: list[tuple[int, str]] = []
+
+    for index, line in enumerate(lines):
+        section = _resume_section_name(line)
+        if section is not None:
+            current_section = section
+            continue
+        if current_section not in _CATEGORY_SECTION_NAMES - {"TOOLKIT"}:
+            continue
+        match = re.match(
+            r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*.+$",
+            line.strip(),
+        )
+        if match is None:
+            continue
+        categories.append((index, _normalized_match_text(match.group(1))))
+
+    if len(categories) <= maximum:
+        return text.strip(), False
+
+    retained_indices = {index for index, _ in categories[:maximum]}
+    for index, label in categories[maximum:]:
+        if label != "ai tools":
+            continue
+        replace_index = next(
+            (
+                candidate_index
+                for candidate_index, candidate_label in reversed(categories[:maximum])
+                if candidate_label != "ai tools"
+                and candidate_index in retained_indices
+            ),
+            None,
+        )
+        if replace_index is not None:
+            retained_indices.remove(replace_index)
+            retained_indices.add(index)
+
+    for index, _ in categories:
+        if index not in retained_indices:
+            lines[index] = ""
+
+    return _collapse_blank_lines(lines), True
 
 
 def _resume_category_values(text: str, label: str) -> list[str]:

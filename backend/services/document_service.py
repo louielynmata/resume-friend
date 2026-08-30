@@ -280,6 +280,14 @@ def _resume_line_kind(line: str, index: int) -> tuple[str, str]:
         return "contact", m.group(1).strip()
 
     m = re.match(
+        r"^\[?WORK[_ ]SAMPLES?\s*:\s*(.+?)\]?$",
+        clean,
+        re.IGNORECASE,
+    )
+    if m:
+        return "work_samples", m.group(1).strip()
+
+    m = re.match(
         r"^\[?(?:LINKS?|PORTFOLIO|DESIGNER PORTFOLIO(?:\s+LINK)?|"
         r"WORK[_ ]SAMPLES?|CASE[_ ]STUDIES)\s*:\s*(.+?)\]?$",
         clean,
@@ -453,6 +461,38 @@ def _add_contact_line(
     )
 
 
+def _add_work_sample_lines(
+    doc,
+    text: str,
+    size: int | float,
+    *,
+    required_hyperlinks: Mapping[str, str] | None = None,
+) -> None:
+    """Render each work sample with its exact target visible beside the label."""
+    links = tuple(iter_markdown_links(text))
+    if not links:
+        paragraph = doc.add_paragraph()
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _add_contact_line(
+            paragraph,
+            text,
+            size,
+            required_hyperlinks=required_hyperlinks,
+        )
+        _set_para_spacing(paragraph, before=0, after=1)
+        return
+
+    for link in links:
+        target = (required_hyperlinks or {}).get(link.label, link.url)
+        paragraph = doc.add_paragraph()
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _add_hyperlink(paragraph, link.label, target, size)
+        separator = paragraph.add_run(": ")
+        _set_run_font(separator, size=size)
+        _add_hyperlink(paragraph, target, target, size)
+        _set_para_spacing(paragraph, before=0, after=1)
+
+
 def _add_bare_contact_links(
     paragraph,
     text: str,
@@ -565,6 +605,14 @@ def _build_resume_docx(
             run = p.add_run(value)
             _set_run_font(run, size=9)
             _set_para_spacing(p, before=0, after=1)
+
+        elif kind == "work_samples":
+            _add_work_sample_lines(
+                doc,
+                value,
+                size=8.5,
+                required_hyperlinks=required_hyperlinks,
+            )
 
         elif kind == "contact":
             # Strip any remaining label prefixes that sneak through

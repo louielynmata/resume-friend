@@ -14,6 +14,11 @@ _REQUIRED_LABELS = {
     "development": (CASE_STUDIES_LABEL,),
 }
 
+_TRACK_BLOCK_PATTERN = re.compile(
+    r"(?ims)^[ \t]*(design|development) resume header - required exact values:"
+    r"[ \t]*\r?\n.*?^[ \t]*end \1 resume header[ \t]*(?:\r?\n|$)"
+)
+
 
 class RequiredWorkSampleLinkError(ValueError):
     def __init__(self, labels: tuple[str, ...]):
@@ -85,7 +90,15 @@ def required_work_sample_links(
 
     links: dict[str, str] = {}
     invalid: list[str] = []
-    parsed_links = tuple(iter_markdown_links(instructions))
+    scoped_instructions = _TRACK_BLOCK_PATTERN.sub(
+        lambda match: (
+            match.group(0)
+            if match.group(1).lower() == normalized_job_type
+            else ""
+        ),
+        instructions,
+    )
+    parsed_links = tuple(iter_markdown_links(scoped_instructions))
     for label in _REQUIRED_LABELS[normalized_job_type]:
         urls = list(
             dict.fromkeys(

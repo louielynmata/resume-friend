@@ -31,7 +31,7 @@ CONTACT: [Copy one compact contact line from the supplied materials; values only
 LINKS: [Copy relevant professional links exactly from the supplied materials]
 WORK_SAMPLES: [Copy supported portfolio/case-study links using `[Visible label](exact URL)` syntax. Include the design portfolio only for DESIGN; include case studies for either track when supplied.]
 
-Never output an included work-sample label as plain text; preserve the complete [label](exact URL) pair.
+Never output an included work-sample label as plain text; preserve the complete [label](exact URL) pair character-for-character. The document builder displays that exact target as visible URL text beside the label, so do not shorten or rewrite it.
 
 PROFESSIONAL SUMMARY
 [3-5 sentences. Use **bold** inline for key phrases. Do not use dash sentence connectors.]
@@ -50,7 +50,7 @@ RESUME FORMAT RULES - non-negotiable:
 - NAME:, ROLE:, CONTACT:, and LINKS: are required exactly as shown because the document builder depends on them. TAGLINE: is optional. WORK_SAMPLES: is required when the applicant instructions provide a track-specific work-samples line.
 - ROLE: must always contain the target position represented by `{{ROLE_HINT}}`. Never omit it during drafting or self-review, even when a similar title appears in the summary or work history.
 - Copy every line from the common `RESUME HEADER - REQUIRED EXACT VALUES` block plus the matching DESIGN or DEVELOPMENT resume-header block exactly. CONTACT: must remain one compact line with values only. Do not add field labels.
-- Preserve supported website display text exactly in LINKS:. In WORK_SAMPLES:, preserve each supplied `[Visible label](exact URL)` pair exactly; this is the only resume line where Markdown link syntax is allowed because the document builder converts it to labeled hyperlinks.
+- Preserve supported website display text exactly in LINKS:. In WORK_SAMPLES:, preserve each supplied `[Visible label](exact URL)` pair character-for-character; this is the only resume line where Markdown link syntax is allowed because the document builder converts it to labeled hyperlinks and displays each exact target beside its label.
 - ● is the only bullet character. Do not use hyphens, asterisks, or numbers as bullets.
 - Do not use "I," "my," "me," or "myself" in the resume. Use the applicant's name exactly as supplied when a subject is necessary, or drop the subject.
 - Use **bold** only inside bullet text and paragraph body, never on section headers or role/company names.
@@ -68,6 +68,7 @@ Projects, Notable Projects, Notable Clients
 SECTION RULES:
 - Education is always a separate section.
 - DESIGN resumes must omit certificates/certifications. Their last two sections must be `EDUCATION`, then `AWARDS AND ACHIEVEMENTS`.
+- When a DESIGN source resume contains `Other Work Experience`, `Other Work Experiences`, `Other Experience`, or `Other Experiences`, preserve those entries in a separate `OTHER WORK EXPERIENCES` section immediately after the main work-experience section. Do not merge them into the primary creative work history.
 - For DESIGN resumes, every source work entry containing a `Notable Clients` or `Notable Clients & Works` subsection is a fixed reference entry. Preserve its company name and descriptor, keep each source role and full date history on a separate line, retain every source achievement bullet, and retain the complete notable-client list. The only permitted additions inside that entry are source-supported `●` bullet lines placed after the source achievement bullets and before the notable-client subheading.
 - DEVELOPMENT resumes must end in this exact order: `EDUCATION`, `PROJECTS`, `RELATED WORK EXPERIENCES`, `OTHER WORK EXPERIENCES`, `CERTIFICATES`, `AWARDS AND ACHIEVEMENTS`. Preserve the source grouping and do not merge the two work-experience sections.
 - Every employer in the source resume must remain present. Reduce less relevant bullets if needed, but do not drop the employer, role, or dates.
@@ -84,7 +85,9 @@ SKILL AND TOOL CATEGORY FORMAT:
   CATEGORY: Category Name | concise item, concise item, concise item
 - Do not prefix CATEGORY lines or category names with a bullet.
 - Separate category values with a comma followed by one space. Never use semicolons as skill or tool separators.
-- Use two to four categories. Keep each category self-contained so the builder can place it in the compact reference-style grid.
+- Across CORE SKILLS, DESIGN SKILLS, TECHNICAL SKILLS, CREATIVE SKILLS, and SKILLS combined, use two to four categories total, not two to four per section. Prefer one concise, job-relevant capability section. TOOLKIT may separately contain two to four source-backed tool categories.
+- A category name is only its concise label. Never prefix it with a section name; use `CATEGORY: Visual Identity | ...`, not `CATEGORY: DESIGN SKILLS: Visual Identity | ...`.
+- Do not repeat an individual tool or technology outside TOOLKIT when TOOLKIT already lists it. Keep non-Toolkit skill categories focused on capabilities, methods, business knowledge, and role-relevant strengths.
 - When the source resume has an `### AI Tools` subsection, include exactly one `CATEGORY: AI Tools | ...` line and copy every listed tool exactly. Do not infer or add tools. Keep named AI tool references in this category instead of repeating tool names in the summary, experience, projects, or other prose. Preserve source-backed descriptions of AI or LLM products, projects, and domain work outside the category.
 
 WORK ENTRY FORMAT - use only these two patterns:
