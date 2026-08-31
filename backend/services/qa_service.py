@@ -266,6 +266,22 @@ def apply_safe_deterministic_fixes(
                 "Restored the source-backed AI tools category for the resume."
             )
 
+    if (
+        job_type.strip().lower() == "development"
+        and source_resume.strip()
+    ):
+        fixed.resume, source_skills_changed = (
+            _restore_development_source_skills(
+                fixed.resume,
+                source_resume,
+            )
+        )
+        if source_skills_changed:
+            changes.append(
+                "Restored every source skill and tool exactly once for the "
+                "development resume."
+            )
+
     fixed.resume, toolkit_duplicates_removed = (
         _remove_toolkit_duplicates_from_skill_categories(fixed.resume)
     )
@@ -274,15 +290,16 @@ def apply_safe_deterministic_fixes(
             "Removed repeated Toolkit items from compact skill categories."
         )
 
-    fixed.resume, categories_limited = _limit_non_toolkit_categories(
-        fixed.resume,
-        maximum=4,
-    )
-    if categories_limited:
-        changes.append(
-            "Tailored and limited compact skill categories to the four most "
-            "relevant groups before Toolkit."
+    if job_type.strip().lower() != "development":
+        fixed.resume, categories_limited = _limit_non_toolkit_categories(
+            fixed.resume,
+            maximum=4,
         )
+        if categories_limited:
+            changes.append(
+                "Tailored and limited compact skill categories to the four most "
+                "relevant groups before Toolkit."
+            )
 
     fixed.resume, section_order_changed = _apply_track_section_contract(
         fixed.resume,
@@ -367,6 +384,7 @@ def validate_draft(
     source_requirements = _validate_truthfulness(
         resume=resume,
         source_resume=source_resume,
+        job_type=job_type,
         add=add,
     )
     _validate_track_section_contract(
@@ -592,6 +610,7 @@ def _validate_truthfulness(
     *,
     resume: str,
     source_resume: str,
+    job_type: str,
     add: _AddIssue,
 ) -> dict[str, object]:
     source_requirements = _extract_source_resume_requirements(source_resume)
@@ -651,6 +670,45 @@ def _validate_truthfulness(
             "The resume dropped named source achievement(s): "
             + ", ".join(missing_achievements),
         )
+
+    if job_type.strip().lower() == "development":
+        source_skill_categories = _extract_source_skill_categories(source_resume)
+        source_skills = [
+            value
+            for _, values in source_skill_categories
+            for value in values
+        ]
+        skill_occurrences = _resume_category_value_occurrences(resume)
+        missing_skills = [
+            value
+            for value in source_skills
+            if skill_occurrences.get(_normalized_match_text(value), 0) == 0
+        ]
+        if missing_skills:
+            add(
+                "RESUME_SOURCE_SKILLS_MISSING",
+                "truthfulness",
+                QASeverity.ERROR,
+                "resume",
+                "The development resume dropped source skill(s) or tool(s): "
+                + ", ".join(missing_skills),
+            )
+
+        duplicated_skills = [
+            value
+            for value in source_skills
+            if skill_occurrences.get(_normalized_match_text(value), 0) > 1
+        ]
+        if duplicated_skills:
+            add(
+                "RESUME_SOURCE_SKILLS_DUPLICATED",
+                "structure",
+                QASeverity.ERROR,
+                "resume",
+                "Keep each development source skill or tool exactly once in "
+                "CATEGORY values; remove duplicate occurrence(s) of: "
+                + ", ".join(duplicated_skills),
+            )
 
     source_ai_tools = source_requirements["ai_tools"]
     generated_ai_tools = _resume_category_values(resume, "AI Tools")
@@ -1985,6 +2043,47 @@ def _markdown_subsection_items(text: str, name: str) -> list[str]:
     return items
 
 
+def _extract_source_skill_categories(
+    source_resume: str,
+) -> list[tuple[str, list[str]]]:
+    categories: list[tuple[str, list[str]]] = []
+    seen_values: set[str] = set()
+    active_section = False
+    current_values: list[str] | None = None
+
+    for raw_line in source_resume.splitlines():
+        heading = re.match(r"^(#{1,6})\s+(.+?)\s*$", raw_line.strip())
+        if heading:
+            level = len(heading.group(1))
+            label = _plain_text(heading.group(2))
+            if level == 2:
+                active_section = (
+                    _normalized_match_text(label)
+                    == "toolkit and technical skills"
+                )
+                current_values = None
+            elif active_section and level == 3:
+                current_values = []
+                categories.append((label, current_values))
+            continue
+
+        if not active_section or current_values is None:
+            continue
+        bullet = re.match(
+            r"^\s*(?:[-+*]|\u25cf|\u2022)\s+(.+?)\s*$",
+            raw_line,
+        )
+        if bullet is None:
+            continue
+        value = _plain_text(bullet.group(1)).rstrip(".").strip()
+        normalized_value = _normalized_match_text(value)
+        if value and normalized_value not in seen_values:
+            current_values.append(value)
+            seen_values.add(normalized_value)
+
+    return [(label, values) for label, values in categories if values]
+
+
 def _required_experience_sections(source_resume: str) -> list[str]:
     required: list[str] = []
     for line in source_resume.splitlines():
@@ -2580,6 +2679,90 @@ def _normalized_toolkit_value(value: str) -> str:
     return normalized.removeprefix("adobe ")
 
 
+def _restore_development_source_skills(
+    text: str,
+    source_resume: str,
+) -> tuple[str, bool]:
+    source_categories = _extract_source_skill_categories(source_resume)
+    if not source_categories:
+        return text.strip(), False
+
+    source_value_keys = {
+        _normalized_match_text(value)
+        for _, values in source_categories
+        for value in values
+    }
+    canonical_toolkit = [
+        "TOOLKIT",
+        *(
+            f"CATEGORY: {label} | {', '.join(values)}"
+            for label, values in source_categories
+        ),
+    ]
+    prefix, blocks = _resume_section_blocks(text)
+    if not blocks:
+        restored = _collapse_blank_lines(
+            [*prefix, "", *canonical_toolkit]
+        )
+        return restored, restored != text.strip()
+
+    restored_blocks: list[tuple[str, list[str]]] = []
+    toolkit_restored = False
+
+    for section, block in blocks:
+        if section == "TOOLKIT":
+            if not toolkit_restored:
+                restored_blocks.append(("TOOLKIT", canonical_toolkit))
+                toolkit_restored = True
+            continue
+
+        if section not in _CATEGORY_SECTION_NAMES:
+            restored_blocks.append((section, block))
+            continue
+
+        cleaned_block = [block[0]]
+        for line in block[1:]:
+            category = re.match(
+                r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
+                line.strip(),
+            )
+            if category is None:
+                cleaned_block.append(line)
+                continue
+            label, raw_values = category.groups()
+            retained_values = [
+                value.strip()
+                for value in raw_values.split(",")
+                if value.strip()
+                and _normalized_match_text(value) not in source_value_keys
+            ]
+            if retained_values:
+                cleaned_block.append(
+                    f"CATEGORY: {label.strip()} | {', '.join(retained_values)}"
+                )
+
+        while len(cleaned_block) > 1 and not cleaned_block[-1].strip():
+            cleaned_block.pop()
+        if any(line.strip() for line in cleaned_block[1:]):
+            restored_blocks.append((section, cleaned_block))
+
+    if not toolkit_restored:
+        insertion_index = 0
+        for index, (section, _) in enumerate(restored_blocks):
+            if (
+                section == "PROFESSIONAL SUMMARY"
+                or section in _CATEGORY_SECTION_NAMES
+            ):
+                insertion_index = index + 1
+        restored_blocks.insert(
+            insertion_index,
+            ("TOOLKIT", canonical_toolkit),
+        )
+
+    restored = _render_resume_section_blocks(prefix, restored_blocks)
+    return restored, restored != text.strip()
+
+
 def _limit_non_toolkit_categories(
     text: str,
     *,
@@ -2645,6 +2828,24 @@ def _resume_category_values(text: str, label: str) -> list[str]:
                 if value.strip()
             ]
     return []
+
+
+def _resume_category_value_occurrences(text: str) -> dict[str, int]:
+    occurrences: dict[str, int] = {}
+    for line in text.splitlines():
+        match = re.match(
+            r"(?i)^CATEGORY\s*:\s*.+?\s*\|\s*(.+)$",
+            line.strip(),
+        )
+        if match is None:
+            continue
+        for value in match.group(1).split(","):
+            normalized_value = _normalized_match_text(value)
+            if normalized_value:
+                occurrences[normalized_value] = (
+                    occurrences.get(normalized_value, 0) + 1
+                )
+    return occurrences
 
 
 def _resume_has_ai_content_outside_category(
@@ -3094,9 +3295,25 @@ def _education_anchor_matches(institution: str, candidate: str) -> bool:
 
 
 def _normalize_em_dashes(text: str) -> tuple[str, int]:
-    normalized, replacements = re.subn(r"\s*\u2014\s*", ", ", text)
-    normalized = re.sub(r",\s*,", ",", normalized)
-    return normalized.strip(), replacements
+    normalized_lines: list[str] = []
+    replacements = 0
+
+    for line in text.splitlines():
+        is_category = bool(
+            re.match(r"(?i)^\s*CATEGORY\s*:", line)
+        )
+        replacement = " - " if is_category else ", "
+        normalized_line, line_replacements = re.subn(
+            r"\s*\u2014\s*",
+            replacement,
+            line,
+        )
+        if not is_category:
+            normalized_line = re.sub(r",\s*,", ",", normalized_line)
+        normalized_lines.append(normalized_line)
+        replacements += line_replacements
+
+    return "\n".join(normalized_lines).strip(), replacements
 
 
 def _restore_cover_letter_signoff(text: str, owner_name: str) -> tuple[str, bool]:

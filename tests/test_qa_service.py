@@ -32,6 +32,36 @@ SOURCE_WITH_DEVELOPMENT_LINKS = (
     SOURCE_RESUME + "\n" + format_work_samples_line(DEVELOPMENT_LINKS)
 )
 
+DEVELOPMENT_SOURCE_WITH_SKILLS = """# Alex Example
+
+## Toolkit and Technical Skills
+
+### Languages
+- Python
+- TypeScript
+
+### Frameworks
+- React
+- React Native
+
+### Testing
+- unittest
+- Playwright
+
+### Delivery
+- Docker
+- CI/CD
+
+### Architecture
+- REST APIs
+- Event-driven systems
+
+### Currently Learning
+- Rust
+
+## Educational Attainment
+"""
+
 
 def valid_draft() -> DocumentDraft:
     return DocumentDraft(
@@ -1511,6 +1541,179 @@ AWARDS AND ACHIEVEMENTS
         self.assertNotIn("Client Management", before_toolkit)
         self.assertNotIn("Technical Expertise", before_toolkit)
         self.assertIn("limited compact skill categories", " ".join(changes))
+
+    def test_safe_fixes_restore_every_development_source_skill_exactly_once(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TECHNICAL SKILLS\n"
+            "CATEGORY: Languages | Python\n"
+            "CATEGORY: Frameworks | React\n\n"
+            "---\n\n"
+            "TOOLKIT\n"
+            "CATEGORY: Languages | Python\n"
+            "CATEGORY: Delivery | Docker\n\n"
+            "---\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_resume=DEVELOPMENT_SOURCE_WITH_SKILLS,
+            job_type="development",
+        )
+
+        toolkit = fixed.resume.split("\nTOOLKIT\n", 1)[1].split("\n---\n", 1)[0]
+        self.assertEqual(
+            [line for line in toolkit.splitlines() if line.startswith("CATEGORY:")],
+            [
+                "CATEGORY: Languages | Python, TypeScript",
+                "CATEGORY: Frameworks | React, React Native",
+                "CATEGORY: Testing | unittest, Playwright",
+                "CATEGORY: Delivery | Docker, CI/CD",
+                "CATEGORY: Architecture | REST APIs, Event-driven systems",
+                "CATEGORY: Currently Learning | Rust",
+            ],
+        )
+        category_values = [
+            value.strip()
+            for line in fixed.resume.splitlines()
+            if line.startswith("CATEGORY:")
+            for value in line.split("|", 1)[1].split(",")
+        ]
+        self.assertEqual(category_values.count("Python"), 1)
+        self.assertEqual(category_values.count("React"), 1)
+        self.assertEqual(category_values.count("React Native"), 1)
+        self.assertIn("source skill", " ".join(changes).lower())
+
+        fixed_again, second_changes = apply_safe_deterministic_fixes(
+            fixed,
+            owner_name="Alex Example",
+            source_resume=DEVELOPMENT_SOURCE_WITH_SKILLS,
+            job_type="development",
+        )
+
+        self.assertEqual(fixed_again, fixed)
+        self.assertNotIn("source skill", " ".join(second_changes).lower())
+
+    def test_safe_fixes_do_not_limit_development_skill_categories(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TECHNICAL SKILLS\n"
+            "CATEGORY: Languages | Python\n"
+            "CATEGORY: Frameworks | React\n"
+            "CATEGORY: Testing | unittest\n"
+            "CATEGORY: Delivery | Docker\n"
+            "CATEGORY: Architecture | REST APIs\n"
+            "CATEGORY: Learning | Rust\n\n"
+            "---\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            job_type="development",
+        )
+
+        technical_skills = fixed.resume.split(
+            "\nTECHNICAL SKILLS\n", 1
+        )[1].split("\n---\n", 1)[0]
+        self.assertEqual(technical_skills.count("CATEGORY:"), 6)
+        self.assertNotIn("limited compact skill categories", " ".join(changes))
+
+    def test_safe_fixes_keep_em_dash_source_skill_as_one_category_value(self):
+        source_resume = """# Alex Example
+
+## Toolkit and Technical Skills
+
+### Delivery
+- GitHub \u2014 Version Control and CI
+"""
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            valid_draft(),
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            job_type="development",
+        )
+
+        self.assertIn(
+            "CATEGORY: Delivery | GitHub - Version Control and CI",
+            fixed.resume,
+        )
+        issues = validate_draft(
+            fixed,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="development",
+        )
+        self.assertNotIn(
+            "RESUME_SOURCE_SKILLS_MISSING",
+            {issue.code for issue in issues},
+        )
+
+    def test_validator_blocks_missing_development_source_skills(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TOOLKIT\n"
+            "CATEGORY: Languages | Python, TypeScript\n"
+            "CATEGORY: Frameworks | React Native\n"
+            "CATEGORY: Testing | unittest, Playwright\n"
+            "CATEGORY: Delivery | Docker, CI/CD\n"
+            "CATEGORY: Architecture | REST APIs, Event-driven systems\n"
+            "CATEGORY: Currently Learning | Rust\n\n"
+            "---\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=DEVELOPMENT_SOURCE_WITH_SKILLS,
+            source_materials=DEVELOPMENT_SOURCE_WITH_SKILLS,
+            job_type="development",
+        )
+
+        self.assertIn(
+            "RESUME_SOURCE_SKILLS_MISSING",
+            {issue.code for issue in issues},
+        )
+
+    def test_validator_blocks_duplicated_development_source_skills(self):
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TECHNICAL SKILLS\n"
+            "CATEGORY: Languages | Python\n\n"
+            "---\n\n"
+            "TOOLKIT\n"
+            "CATEGORY: Languages | Python, TypeScript\n"
+            "CATEGORY: Frameworks | React, React Native\n"
+            "CATEGORY: Testing | unittest, Playwright\n"
+            "CATEGORY: Delivery | Docker, CI/CD\n"
+            "CATEGORY: Architecture | REST APIs, Event-driven systems\n"
+            "CATEGORY: Currently Learning | Rust\n\n"
+            "---\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        issues = validate_draft(
+            draft,
+            owner_name="Alex Example",
+            source_resume=DEVELOPMENT_SOURCE_WITH_SKILLS,
+            source_materials=DEVELOPMENT_SOURCE_WITH_SKILLS,
+            job_type="development",
+        )
+
+        self.assertIn(
+            "RESUME_SOURCE_SKILLS_DUPLICATED",
+            {issue.code for issue in issues},
+        )
 
     def test_safe_fixes_preserve_required_ai_tools_when_limiting_categories(self):
         source_resume = """# Alex Example
