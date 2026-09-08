@@ -1197,8 +1197,9 @@ def _validate_track_section_contract(
 
 
 def _plain_text(text: str) -> str:
+    text = re.sub(r"^#{1,6}\s+", "", text.strip())
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-    text = re.sub(r"[*_`~#]", "", text)
+    text = re.sub(r"[*_`~]", "", text)
     return re.sub(r"\s+", " ", text).strip()
 
 

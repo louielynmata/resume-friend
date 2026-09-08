@@ -1597,6 +1597,45 @@ AWARDS AND ACHIEVEMENTS
         self.assertEqual(fixed_again, fixed)
         self.assertNotIn("source skill", " ".join(second_changes).lower())
 
+    def test_safe_fixes_preserve_csharp_source_skill_exactly(self):
+        source_resume = """# Alex Example
+
+## Toolkit and Technical Skills
+
+### Languages
+- C#
+"""
+        draft = valid_draft()
+        draft.resume = draft.resume.replace(
+            "PROFESSIONAL SUMMARY\n",
+            "TOOLKIT\n"
+            "CATEGORY: Languages | C\n\n"
+            "---\n\n"
+            "PROFESSIONAL SUMMARY\n",
+        )
+
+        fixed, _ = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            job_type="development",
+        )
+
+        self.assertIn("CATEGORY: Languages | C#", fixed.resume)
+        self.assertNotIn("CATEGORY: Languages | C\n", fixed.resume)
+        self.assertNotIn("C++", fixed.resume)
+        issues = validate_draft(
+            fixed,
+            owner_name="Alex Example",
+            source_resume=source_resume,
+            source_materials=source_resume,
+            job_type="development",
+        )
+        self.assertNotIn(
+            "RESUME_SOURCE_SKILLS_MISSING",
+            {issue.code for issue in issues},
+        )
+
     def test_safe_fixes_do_not_limit_development_skill_categories(self):
         draft = valid_draft()
         draft.resume = draft.resume.replace(
