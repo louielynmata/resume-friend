@@ -658,8 +658,7 @@ def _build_resume_docx(
                 label, details = candidate_value.split("|", 1)
                 categories.append((label.strip(), details.strip()))
                 i += 1
-            columns = 3 if current_section == "TOOLKIT" else 2
-            _add_category_grid(doc, categories, columns=columns)
+            _add_category_grid(doc, categories, columns=2)
             continue
 
         elif kind == "entry":

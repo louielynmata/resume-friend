@@ -109,6 +109,7 @@ ROLE TITLE TWO - Start Date - End Date (type)
 EDUCATION ENTRY FORMAT - two lines per institution:
 Line 1: Institution Name | Start Year - End Year
 Line 2: Degree or Credential (verified achievement and GPA when relevant)
+- When a source education entry states `Graduated with Honors`, include that exact phrase on line 2. Apply this to every qualifying education entry in both DESIGN and DEVELOPMENT resumes; it is never optional for relevance or space.
 
 RULES FOR ENTRIES:
 - Give each role title its own line.
@@ -169,6 +170,7 @@ Pass 1 - Content completeness:
 - Education dates are preserved only when intentionally present in the selected source resume; omitted attendance or graduation years remain omitted and are never inferred from other materials.
 - Every named award and achievement is preserved exactly.
 - Graduation status, dates, honors, and GPA match the applicant materials exactly.
+- Every source education entry that states `Graduated with Honors` retains that exact phrase.
 - Certifications and awards are formatted as ● bullets.
 
 Pass 2 - Format and rules:

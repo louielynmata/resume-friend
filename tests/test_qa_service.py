@@ -1510,6 +1510,52 @@ AWARDS AND ACHIEVEMENTS
         self.assertEqual(fixed.resume.count("Figma"), 1)
         self.assertIn("CATEGORY builder markers", " ".join(changes))
 
+    def test_safe_fixes_promote_prefixed_design_skill_rows_into_category_section(self):
+        draft = valid_draft()
+        draft.resume = """NAME: Alex Example
+ROLE: Creative Lead
+CONTACT: alex@example.com
+
+PROFESSIONAL SUMMARY
+Designer focused on accessible digital experiences.
+
+---
+
+DESIGN SKILLS: Visual Systems | Brand storytelling, visual identity systems
+DESIGN TOOLS: Core Creative Software | Adobe Creative Suite, Figma
+CORE SKILLS: Strategy & Execution | User-centered design, creative direction
+
+---
+
+TOOLKIT
+CATEGORY: Design & Multimedia Tools | Adobe Creative Suite, Figma
+
+---
+
+WORK EXPERIENCE
+COMPANY: Example Studio
+CREATIVE LEAD - 2020 - Present
+● Built accessible digital experiences.
+"""
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            job_type="design",
+        )
+
+        self.assertIn(
+            "DESIGN SKILLS\n"
+            "CATEGORY: Visual Systems | Brand storytelling, visual identity systems\n"
+            "CATEGORY: Strategy & Execution | User-centered design, creative direction",
+            fixed.resume,
+        )
+        self.assertNotIn("DESIGN SKILLS: Visual Systems", fixed.resume)
+        self.assertNotIn("DESIGN TOOLS: Core Creative Software", fixed.resume)
+        self.assertNotIn("CORE SKILLS: Strategy & Execution", fixed.resume)
+        self.assertNotIn("CATEGORY: Core Creative Software", fixed.resume)
+        self.assertIn("CATEGORY builder markers", " ".join(changes))
+
     def test_safe_fixes_limit_non_toolkit_categories_across_skill_sections(self):
         draft = valid_draft()
         draft.resume = draft.resume.replace(
@@ -1892,7 +1938,8 @@ AWARDS AND ACHIEVEMENTS
             ),
             1,
         )
-        self.assertIn("TOOLKIT: Web & Tech Stack | Figma", fixed.resume)
+        self.assertIn("CATEGORY: Web & Tech Stack | Figma", fixed.resume)
+        self.assertNotIn("TOOLKIT: Web & Tech Stack", fixed.resume)
         self.assertNotIn(
             "TOOLKIT: Web & Tech Stack | Figma, Pair Pilot, Local Assistant",
             fixed.resume,
@@ -2042,6 +2089,53 @@ CREATIVE DIRECTOR - April 2021 - Oct 2024, Full-time
             fixed.resume,
         )
         self.assertNotIn("RESUME_SOURCE_DATES_MISSING", codes)
+
+    def test_safe_fixes_restore_honors_for_each_source_education_entry(self):
+        source_resume = """# Alex Example
+
+## Educational Attainment
+
+### North College
+
+**Software Development Diploma**
+2024–2026
+Graduated with Honors (GPA 3.84 / 4.0)
+
+### South University
+
+**Bachelor of Arts in Multimedia Arts**
+Graduated with Honors and Dean’s Lister
+"""
+        draft = valid_draft()
+        draft.resume += """
+
+---
+
+EDUCATION
+North College | 2024 - 2026
+Software Development Diploma
+
+South University
+Bachelor of Arts in Multimedia Arts
+"""
+
+        fixed, changes = apply_safe_deterministic_fixes(
+            draft,
+            owner_name="Alex Example",
+            target_role="Software Engineer",
+            source_resume=source_resume,
+        )
+
+        self.assertIn(
+            "Software Development Diploma (Graduated with Honors)",
+            fixed.resume,
+        )
+        self.assertIn(
+            "Bachelor of Arts in Multimedia Arts (Graduated with Honors)",
+            fixed.resume,
+        )
+        self.assertEqual(fixed.resume.count("Graduated with Honors"), 2)
+        self.assertIn("education honors", " ".join(changes).lower())
 
     def test_safe_fixes_restore_development_reference_sections_from_source(self):
         source_resume = """# Alex Example

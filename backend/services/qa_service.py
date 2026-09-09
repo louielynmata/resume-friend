@@ -189,6 +189,17 @@ def apply_safe_deterministic_fixes(
                 "the source resume."
             )
 
+        fixed.resume, education_honors_changed = (
+            _restore_source_education_honors(
+                fixed.resume,
+                source_resume,
+            )
+        )
+        if education_honors_changed:
+            changes.append(
+                "Restored verified education honors for each matching source entry."
+            )
+
         (
             fixed.resume,
             development_sections_changed,
@@ -2512,8 +2523,7 @@ def _line_has_resume_date(text: str) -> bool:
 
 def _normalize_resume_categories(text: str) -> tuple[str, bool]:
     """Convert common legacy skill shapes into the builder's CATEGORY syntax."""
-    lines = text.strip().splitlines()
-    changed = False
+    lines, changed = _promote_prefixed_category_rows(text.strip().splitlines())
     index = 0
 
     while index < len(lines):
@@ -2591,6 +2601,65 @@ def _normalize_resume_categories(text: str) -> tuple[str, bool]:
     return "\n".join(lines).strip(), changed
 
 
+def _promote_prefixed_category_rows(
+    lines: list[str],
+) -> tuple[list[str], bool]:
+    """Promote `SECTION: Label | values` rows into a real category section."""
+    prefixed_row = re.compile(
+        r"^(CORE SKILLS|DESIGN SKILLS|DESIGN TOOLS|TECHNICAL SKILLS|"
+        r"CREATIVE SKILLS|SKILLS|TOOLKIT)\s*:\s*([^|:]{1,60})\s*\|\s*(.+)$",
+        re.IGNORECASE,
+    )
+    promoted: list[str] = []
+    current_category_section = ""
+    changed = False
+    index = 0
+
+    while index < len(lines):
+        line = lines[index]
+        clean = _plain_text(line).upper()
+        if clean in _CATEGORY_SECTION_NAMES:
+            current_category_section = clean
+            promoted.append(line)
+            index += 1
+            continue
+        if clean == "---" or clean in _RESUME_SECTION_NAMES:
+            current_category_section = ""
+            promoted.append(line)
+            index += 1
+            continue
+
+        match = prefixed_row.match(line.strip())
+        if match is None:
+            promoted.append(line)
+            index += 1
+            continue
+        if current_category_section:
+            promoted.append(line)
+            index += 1
+            continue
+
+        prefix = match.group(1).upper()
+        current_category_section = (
+            "TOOLKIT" if prefix in {"DESIGN TOOLS", "TOOLKIT"} else prefix
+        )
+        promoted.append(current_category_section)
+
+        while index < len(lines):
+            candidate = prefixed_row.match(lines[index].strip())
+            if candidate is None:
+                break
+            _, label, raw_values = candidate.groups()
+            promoted.append(
+                f"CATEGORY: {label.strip()} | "
+                f"{_normalize_category_values(raw_values)}"
+            )
+            changed = True
+            index += 1
+
+    return promoted, changed
+
+
 def _normalize_category_label(raw_label: str) -> str:
     label = raw_label.strip()
     for section in sorted(_CATEGORY_SECTION_NAMES, key=len, reverse=True):
@@ -2643,6 +2712,7 @@ def _remove_toolkit_duplicates_from_skill_categories(
 
     changed = False
     current_section = ""
+    removed_indexes: set[int] = set()
     for index, line in enumerate(lines):
         section = _resume_section_name(line)
         if section is not None:
@@ -2665,13 +2735,18 @@ def _remove_toolkit_duplicates_from_skill_categories(
         ]
         if retained == values:
             continue
-        lines[index] = (
-            f"CATEGORY: {label.strip()} | {', '.join(retained)}"
-            if retained
-            else ""
-        )
+        if retained:
+            lines[index] = f"CATEGORY: {label.strip()} | {', '.join(retained)}"
+        else:
+            removed_indexes.add(index)
         changed = True
 
+    if removed_indexes:
+        lines = [
+            line
+            for index, line in enumerate(lines)
+            if index not in removed_indexes
+        ]
     return _collapse_blank_lines(lines), changed
 
 
@@ -2913,6 +2988,34 @@ def _restore_source_ai_tools(
     tool_keys = {_normalized_match_text(tool) for tool in tools}
     last_legacy_row_index: int | None = None
     for index, line in enumerate(lines):
+        category = re.match(
+            r"(?i)^CATEGORY\s*:\s*(.+?)\s*\|\s*(.+)$",
+            line.strip(),
+        )
+        if (
+            category is not None
+            and _normalized_match_text(category.group(1)) != "ai tools"
+        ):
+            label, raw_values = category.groups()
+            values = [
+                value.strip()
+                for value in re.split(r"\s*[;,]\s*", raw_values)
+                if value.strip()
+            ]
+            retained_values = [
+                value
+                for value in values
+                if _normalized_match_text(value) not in tool_keys
+            ]
+            if len(retained_values) != len(values):
+                lines[index] = (
+                    f"CATEGORY: {label.strip()} | {', '.join(retained_values)}"
+                    if retained_values
+                    else ""
+                )
+                changed = True
+            continue
+
         legacy = re.match(
             r"(?i)^([^:]+?)\s*:\s*(.+?)\s*\|\s*(.+)$",
             line.strip(),
@@ -3258,6 +3361,115 @@ def _extract_source_education_dates(
 
         if institution and credential and dates:
             entries.append((institution, credential, dates))
+        index = cursor
+
+    return entries
+
+
+def _restore_source_education_honors(
+    text: str,
+    source_resume: str,
+) -> tuple[str, bool]:
+    """Restore verified honors on every matching education entry."""
+    source_entries = _extract_source_education_honors(source_resume)
+    if not source_entries:
+        return text.strip(), False
+
+    lines = text.strip().splitlines()
+    changed = False
+    current_section: str | None = None
+    institution_names = [institution for institution, _ in source_entries]
+
+    for institution, credential in source_entries:
+        for index, line in enumerate(lines):
+            section = _resume_section_name(line)
+            if section is not None:
+                current_section = section
+                continue
+            if current_section not in {"EDUCATION", "EDUCATIONAL ATTAINMENT"}:
+                continue
+            if not _education_anchor_matches(institution, line):
+                continue
+
+            entry_end = len(lines)
+            for candidate_index in range(index + 1, len(lines)):
+                candidate = lines[candidate_index]
+                if candidate.strip() == "---" or _resume_section_name(candidate):
+                    entry_end = candidate_index
+                    break
+                if any(
+                    other != institution
+                    and _education_anchor_matches(other, candidate)
+                    for other in institution_names
+                ):
+                    entry_end = candidate_index
+                    break
+
+            entry_text = "\n".join(lines[index:entry_end])
+            if re.search(r"(?i)\bgraduated with honors\b", entry_text):
+                normalized_entry = re.sub(
+                    r"(?i)\bgraduated with honors\b",
+                    "Graduated with Honors",
+                    entry_text,
+                )
+                if normalized_entry != entry_text:
+                    lines[index:entry_end] = normalized_entry.splitlines()
+                    changed = True
+                break
+
+            credential_index = next(
+                (
+                    candidate_index
+                    for candidate_index in range(index + 1, entry_end)
+                    if _normalized_match_text(credential)
+                    in _normalized_match_text(lines[candidate_index])
+                ),
+                None,
+            )
+            if credential_index is None:
+                lines.insert(index + 1, f"{credential} (Graduated with Honors)")
+            else:
+                lines[credential_index] = (
+                    f"{lines[credential_index].rstrip()} (Graduated with Honors)"
+                )
+            changed = True
+            break
+
+    return "\n".join(lines).strip(), changed
+
+
+def _extract_source_education_honors(
+    source_resume: str,
+) -> list[tuple[str, str]]:
+    education_lines = _markdown_section_lines(
+        source_resume,
+        {"Education", "Educational Attainment"},
+    )
+    entries: list[tuple[str, str]] = []
+    index = 0
+    while index < len(education_lines):
+        heading = re.match(r"^###\s+(.+?)\s*$", education_lines[index].strip())
+        if heading is None:
+            index += 1
+            continue
+
+        institution = _plain_text(heading.group(1))
+        credential = ""
+        has_honors = False
+        cursor = index + 1
+        while cursor < len(education_lines):
+            candidate = education_lines[cursor].strip()
+            if re.match(r"^###\s+", candidate):
+                break
+            credential_match = re.match(r"^\*\*(.+?)\*\*", candidate)
+            if credential_match and not credential:
+                credential = _plain_text(credential_match.group(1))
+            if re.search(r"(?i)\bgraduated with honors\b", candidate):
+                has_honors = True
+            cursor += 1
+
+        if institution and credential and has_honors:
+            entries.append((institution, credential))
         index = cursor
 
     return entries

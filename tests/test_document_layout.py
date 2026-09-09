@@ -153,6 +153,48 @@ CATEGORY: Collaboration | stakeholder workshops, presentations
             self.assertNotIn(";", document.tables[0].cell(0, 0).text)
             self.assertIn("PAGE", document.sections[0].footer._element.xml)
 
+    def test_design_skills_and_toolkit_use_two_column_tables(self):
+        content = """NAME: Alex Example
+ROLE: Product Designer
+CONTACT: alex@example.com
+
+PROFESSIONAL SUMMARY
+Designer focused on accessible digital experiences.
+
+---
+
+DESIGN SKILLS
+CATEGORY: Product Strategy | UX strategy, design systems
+CATEGORY: Digital Design | Interaction design, visual identity
+CATEGORY: Business Proficiency | Stakeholder presentation, creative direction
+
+---
+
+TOOLKIT
+CATEGORY: Design & Multimedia Tools | Adobe Creative Suite, Figma, Blender
+CATEGORY: Collaboration & Business Tools | Google Workspace, Notion, Jira
+CATEGORY: AI Tools | ChatGPT and Codex, GitHub Copilot, Claude Code
+CATEGORY: Digital & Web Exposure | HTML5, CSS3, JavaScript, TypeScript
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resume.docx"
+            _build_resume_docx(content, path)
+            document = Document(path)
+
+            self.assertEqual(len(document.tables), 2)
+            design_skills, toolkit = document.tables
+            self.assertEqual(len(design_skills.columns), 2)
+            self.assertEqual(len(design_skills.rows), 2)
+            self.assertIn("Product Strategy", design_skills.cell(0, 0).text)
+            self.assertIn("Digital Design", design_skills.cell(0, 1).text)
+            self.assertIn("Business Proficiency", design_skills.cell(1, 0).text)
+            self.assertEqual(len(toolkit.columns), 2)
+            self.assertEqual(len(toolkit.rows), 2)
+            self.assertIn("Design & Multimedia Tools", toolkit.cell(0, 0).text)
+            self.assertIn("Collaboration & Business Tools", toolkit.cell(0, 1).text)
+            self.assertIn("AI Tools", toolkit.cell(1, 0).text)
+            self.assertIn("Digital & Web Exposure", toolkit.cell(1, 1).text)
+
     def test_resume_renders_approved_title_case_section_headers_uppercase_and_bold(self):
         content = """NAME: Alex Example
 ROLE: Software Developer
